@@ -190,12 +190,19 @@ momentum_baseline   momentum     0.020728      0.096072          0.050504
 
 **Использование:**
 ```bash
-# Посмотреть все эксперименты
-python -c "import pandas as pd; df = pd.read_csv('experiments_log.csv'); print(df.sort_values('test_score_total', ascending=False))"
+# Показать leaderboard (красивая таблица)
+python scripts/show_leaderboard.py
 
-# Фильтровать по модели
-python -c "import pandas as pd; df = pd.read_csv('experiments_log.csv'); print(df[df['model_type']=='lightgbm'].sort_values('test_score_total', ascending=False))"
+# Топ-5 экспериментов
+python scripts/show_leaderboard.py --top 5
+
+# Ранжирование по validation метрикам
+python scripts/show_leaderboard.py --split val
 ```
+
+**Понимание метрик:**
+- 📊 **test_score_total**: БОЛЬШЕ = ЛУЧШЕ
+- 📚 Подробнее: [docs/METRICS_GUIDE.md](docs/METRICS_GUIDE.md)
 
 ---
 
