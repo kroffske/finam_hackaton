@@ -55,3 +55,4 @@ data/processed/organizers/
 scripts/prepare_data.py
 scripts/evaluate_submission.py
 outputs/
+data/preprocessed
