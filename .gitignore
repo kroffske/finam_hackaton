@@ -17,6 +17,7 @@ build/
 # IDEs
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
@@ -29,6 +30,7 @@ build/
 # Data - Keep only what's needed for participants
 data/raw/
 data/interim/
+data/preprocessed/  # NEW: preprocessed data (can be regenerated)
 !data/raw/.gitkeep
 !data/raw/participants/*
 !data/interim/.gitkeep
@@ -39,6 +41,7 @@ data/hidden/
 # Artifacts - generated files
 artifacts/
 out/
+outputs/  # NEW: experiment outputs (models, configs, etc)
 logs/
 !logs/.gitkeep
 
@@ -51,3 +54,4 @@ Thumbs.db
 data/processed/organizers/
 scripts/prepare_data.py
 scripts/evaluate_submission.py
+outputs/

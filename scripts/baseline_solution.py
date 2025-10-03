@@ -197,9 +197,9 @@ if __name__ == "__main__":
     baseline = BaselineSolution(window_size=5)
 
     baseline.run(
-        train_path="data/processed/participants/train_candles.csv",
-        public_test_path="data/processed/participants/public_test_candles.csv",
-        private_test_path="data/processed/participants/private_test_candles.csv",
+        train_path="data/raw/participants/train_candles.csv",
+        public_test_path="data/raw/participants/public_test_candles.csv",
+        private_test_path="data/raw/participants/private_test_candles.csv",
         output_path="baseline_submission.csv"
     )
 

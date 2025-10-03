@@ -1,0 +1,84 @@
+{
+  "data_quality": {
+    "train_obs": 23118,
+    "test_obs": 777,
+    "n_tickers": 19,
+    "date_range_train": [
+      "2020-06-19 00:00:00",
+      "2025-04-15 00:00:00"
+    ],
+    "n_tickers_with_gaps": 19
+  },
+  "target_stats": {
+    "return_1d": {
+      "mean": 0.0003404170161859374,
+      "std": 0.022946427909965084,
+      "skew": -0.9894579635476637,
+      "kurtosis": 29.19354490346541
+    },
+    "return_20d": {
+      "mean": 0.007229857866475225,
+      "std": 0.1036182094105141,
+      "skew": -0.17521122487999505,
+      "kurtosis": 2.5444946966184987
+    }
+  },
+  "baseline_metrics": {
+    "1d": {
+      "MAE": 0.014745978052546457,
+      "Brier": 0.25059224743882796,
+      "DA": 0.03144515788547805
+    },
+    "20d": {
+      "MAE": 0.07620150660354273,
+      "Brier": 0.2500084249980276,
+      "DA": 0.028102735508839828
+    }
+  },
+  "top_features": {
+    "1d": [
+      {
+        "Feature": "distance_from_ma_5d",
+        "Corr_return_1d": 0.06890349490314007
+      },
+      {
+        "Feature": "bb_position_20d",
+        "Corr_return_1d": 0.06563313992689439
+      },
+      {
+        "Feature": "momentum_5d",
+        "Corr_return_1d": 0.045719733468600844
+      },
+      {
+        "Feature": "volume_ratio_20d",
+        "Corr_return_1d": -0.031003805118942268
+      },
+      {
+        "Feature": "rsi_14d",
+        "Corr_return_1d": 0.02250417739430613
+      }
+    ],
+    "20d": [
+      {
+        "Feature": "volatility_20d",
+        "Corr_return_20d": -0.12199533758819064
+      },
+      {
+        "Feature": "bb_position_20d",
+        "Corr_return_20d": 0.10373230417397752
+      },
+      {
+        "Feature": "gk_volatility",
+        "Corr_return_20d": -0.09175205311866792
+      },
+      {
+        "Feature": "momentum_20d",
+        "Corr_return_20d": 0.08322429809683267
+      },
+      {
+        "Feature": "macd",
+        "Corr_return_20d": 0.06519138799773239
+      }
+    ]
+  }
+}
