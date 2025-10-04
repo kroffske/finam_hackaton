@@ -268,24 +268,72 @@ def compute_volume_features(
     return df
 
 
-def compute_cross_sectional_features(df: pd.DataFrame) -> pd.DataFrame:
+def fit_cross_sectional_stats(df: pd.DataFrame) -> dict:
     """
-    Cross-sectional features — ранжирование и z-scores по дате
+    Вычисляет статистики для cross-sectional features на train данных
+
+    ⚠️ ВАЖНО: вызывать ТОЛЬКО на train данных, чтобы избежать data leakage!
+
+    Возвращает словарь со статистиками, который можно использовать
+    для transform_cross_sectional_features() на val/test
+
+    Args:
+        df: DataFrame с признаками (обычно train данные)
+
+    Returns:
+        dict с глобальными статистиками {feature: {'mean': ..., 'std': ...}}
+    """
+    # Признаки для которых создаём cross-sectional версии
+    features_to_rank = [
+        'momentum_5d', 'momentum_20d',
+        'volatility_5d', 'volatility_20d',
+        'distance_from_ma_5d', 'distance_from_ma_20d',
+        'rsi_14d', 'macd_diff',
+        'volume_ratio_5d', 'volume_ratio_20d'
+    ]
+
+    # Проверяем какие признаки есть в df
+    features_to_rank = [f for f in features_to_rank if f in df.columns]
+
+    # Вычисляем глобальные статистики (для z-score)
+    stats = {}
+    for feature in features_to_rank:
+        stats[feature] = {
+            'mean': df[feature].mean(),
+            'std': df[feature].std()
+        }
+
+    return stats
+
+
+def transform_cross_sectional_features(
+    df: pd.DataFrame,
+    stats: dict | None = None,
+    fit_mode: bool = False
+) -> pd.DataFrame:
+    """
+    Применяет cross-sectional features к датасету
 
     Для каждого признака создаём:
     - {feature}_rank: процентильный rank по дате (0-1)
-    - {feature}_zscore: z-score по дате
-
-    Это отвечает на вопрос: "Насколько этот актив выделяется на фоне других в этот день?"
+    - {feature}_zscore: z-score с использованием переданных статистик
 
     Args:
         df: DataFrame с колонкой 'begin' (дата)
+        stats: словарь со статистиками из fit_cross_sectional_stats()
+               Если None, то считаем на самом df (только для train!)
+        fit_mode: если True, то игнорирует stats и считает на самом df
 
     Returns:
         df с добавленными rank и zscore колонками
 
     Example:
-        Если у актива momentum_5d_rank = 0.9, значит он в топ-10% по momentum в этот день
+        # Train
+        train_stats = fit_cross_sectional_stats(train_df)
+        train_df = transform_cross_sectional_features(train_df, fit_mode=True)
+
+        # Val/Test (используем train статистики)
+        val_df = transform_cross_sectional_features(val_df, stats=train_stats)
     """
     df = df.copy()
 
@@ -302,17 +350,47 @@ def compute_cross_sectional_features(df: pd.DataFrame) -> pd.DataFrame:
     features_to_rank = [f for f in features_to_rank if f in df.columns]
 
     for feature in features_to_rank:
-        # Percentile rank (0-1)
+        # Percentile rank (0-1) по дате (это безопасно, т.к. внутри одного дня)
         rank_col = f'{feature}_rank'
         df[rank_col] = df.groupby('begin')[feature].rank(pct=True)
 
-        # Z-score (по дате)
+        # Z-score
         zscore_col = f'{feature}_zscore'
-        df[zscore_col] = df.groupby('begin')[feature].transform(
-            lambda x: (x - x.mean()) / (x.std() + 1e-10)
-        )
+
+        if fit_mode or stats is None:
+            # Режим fit: считаем статистики на самом df (train)
+            df[zscore_col] = df.groupby('begin')[feature].transform(
+                lambda x: (x - x.mean()) / (x.std() + 1e-10)
+            )
+        else:
+            # Режим transform: используем переданные статистики (val/test)
+            mean = stats[feature]['mean']
+            std = stats[feature]['std']
+            df[zscore_col] = df.groupby('begin')[feature].transform(
+                lambda x: (x - mean) / (std + 1e-10)
+            )
 
     return df
+
+
+def compute_cross_sectional_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Legacy функция для обратной совместимости
+
+    ⚠️ ВНИМАНИЕ: Эта функция может привести к data leakage!
+    Используйте fit_cross_sectional_stats + transform_cross_sectional_features
+
+    Для каждого признака создаём:
+    - {feature}_rank: процентильный rank по дате (0-1)
+    - {feature}_zscore: z-score по дате
+
+    Args:
+        df: DataFrame с колонкой 'begin' (дата)
+
+    Returns:
+        df с добавленными rank и zscore колонками
+    """
+    return transform_cross_sectional_features(df, fit_mode=True)
 
 
 def compute_interaction_features(df: pd.DataFrame) -> pd.DataFrame:

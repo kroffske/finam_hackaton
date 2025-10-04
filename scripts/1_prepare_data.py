@@ -25,8 +25,13 @@ sys.path.insert(0, str(project_root / 'src'))
 import pandas as pd
 import numpy as np
 
-from finam.features import add_all_features
+from finam.features import (
+    add_all_features,
+    fit_cross_sectional_stats,
+    transform_cross_sectional_features
+)
 from finam.features_news import add_news_features
+from finam.features_target import compute_multi_horizon_targets
 
 
 def prepare_data(
@@ -66,11 +71,10 @@ def prepare_data(
     print("[1/5] Loading data...")
 
     data_dir = project_root / 'data' / 'raw' / 'participants'
-    train_path = data_dir / 'train_candles.csv'
-    news_path = data_dir / 'train_news.csv'
-    public_test_path = data_dir / 'public_test_candles.csv'
-    private_test_path = data_dir / 'private_test_candles.csv'
-    test_news_path = data_dir / 'test_news.csv'
+    train_path = data_dir / 'candles.csv'  # основные данные для обучения
+    news_path = data_dir / 'news.csv'
+    holdout_test_path = data_dir / 'candles_2.csv'  # финальный holdout test
+    test_news_path = data_dir / 'news_2.csv'
 
     if not train_path.exists():
         print(f"❌ File not found: {train_path}")
@@ -91,36 +95,33 @@ def prepare_data(
     else:
         print(f"   [WARNING] News file not found: {news_path}")
 
-    # Загружаем test данные
-    public_test_df = None
-    private_test_df = None
+    # Загружаем holdout test данные
+    holdout_test_df = None
     test_news_df = None
 
-    if public_test_path.exists():
-        public_test_df = pd.read_csv(public_test_path)
-        public_test_df['begin'] = pd.to_datetime(public_test_df['begin'])
-        print(f"   OK Loaded {len(public_test_df)} rows (public_test)")
-
-    if private_test_path.exists():
-        private_test_df = pd.read_csv(private_test_path)
-        private_test_df['begin'] = pd.to_datetime(private_test_df['begin'])
-        print(f"   OK Loaded {len(private_test_df)} rows (private_test)")
+    if holdout_test_path.exists():
+        holdout_test_df = pd.read_csv(holdout_test_path)
+        holdout_test_df['begin'] = pd.to_datetime(holdout_test_df['begin'])
+        print(f"   OK Loaded {len(holdout_test_df)} rows (holdout_test)")
+        print(f"   OK Period: {holdout_test_df['begin'].min()} to {holdout_test_df['begin'].max()}")
 
     if test_news_path.exists():
         test_news_df = pd.read_csv(test_news_path)
-        print(f"   OK Loaded {len(test_news_df)} news (test)")
+        print(f"   OK Loaded {len(test_news_df)} news (holdout_test)")
 
     print()
 
     # ========================================================================
-    # 2. Feature Engineering (train data)
+    # 2. Feature Engineering (базовые фичи БЕЗ cross-sectional)
     # ========================================================================
-    print("[2/5] Feature Engineering (train data)...")
+    print("[2/5] Feature Engineering (базовые фичи)...")
 
+    # Создаём базовые фичи (momentum, volatility, MA, RSI, MACD, volume)
+    # НО БЕЗ cross-sectional (ranks, z-scores), чтобы избежать data leakage
     df = add_all_features(
         df,
         windows=windows,
-        include_cross_sectional=include_cross_sectional,
+        include_cross_sectional=False,  # ⚠️ ВАЖНО: сначала без cross-sectional
         include_interactions=include_interactions
     )
 
@@ -128,17 +129,12 @@ def prepare_data(
     if news_df is not None:
         df = add_news_features(df, news_df, lag_days=1, rolling_windows=[1, 7, 30])
 
-    # Получаем список feature columns (все кроме основных и таргетов)
-    base_cols = ['ticker', 'begin', 'open', 'high', 'low', 'close', 'volume', 'adj_close']
-    target_cols = [col for col in df.columns if col.startswith('target_')]
-    feature_cols = [col for col in df.columns if col not in base_cols and col not in target_cols]
+    print(f"   OK Created базовые признаки")
 
-    print(f"   OK Created {len(feature_cols)} features for train data")
-    print(f"\n   Sample features (first 10):")
-    for i, col in enumerate(feature_cols[:10], 1):
-        print(f"      {i}. {col}")
-    if len(feature_cols) > 10:
-        print(f"      ... and {len(feature_cols) - 10} more\n")
+    # Вычисляем таргеты для всех 20 горизонтов
+    print("   * Computing 20 target returns...")
+    df = compute_multi_horizon_targets(df, horizons=list(range(1, 21)))
+    print(f"   OK Added targets: target_return_1d through target_return_20d")
 
     # ========================================================================
     # 3. Train/Val/Test Split (temporal)
@@ -162,13 +158,17 @@ def prepare_data(
     val_df = df[(df['begin'] >= train_end_date) & (df['begin'] < val_end_date)].copy()
     test_df = df[df['begin'] >= val_end_date].copy()
 
-    # Удаляем строки с NaN в таргетах
+    # Удаляем строки с NaN хотя бы в одном из таргетов
+    # (для длинных горизонтов в конце периода может не быть таргетов)
+    target_cols = [f'target_return_{h}d' for h in range(1, 21)]
+
     for split_name, split_df in [('train', train_df), ('val', val_df), ('test', test_df)]:
         original_len = len(split_df)
-        split_df.dropna(subset=['target_return_1d', 'target_return_20d'], inplace=True)
+        # Удаляем только если ВСЕ таргеты NaN (для коротких горизонтов может быть таргет)
+        split_df.dropna(subset=target_cols, how='all', inplace=True)
         removed = original_len - len(split_df)
         if removed > 0:
-            print(f"   [INFO] Removed {removed} rows with NaN targets from {split_name}")
+            print(f"   [INFO] Removed {removed} rows with all NaN targets from {split_name}")
 
     print(f"\n   Train: {len(train_df):5d} rows ({train_df['begin'].min().date()} to {train_df['begin'].max().date()})")
     print(f"   Val:   {len(val_df):5d} rows ({val_df['begin'].min().date()} to {val_df['begin'].max().date()})")
@@ -178,33 +178,64 @@ def prepare_data(
     print(f"      val_end:   {val_end_date.date()}\n")
 
     # ========================================================================
-    # 4. Feature Engineering (public/private test data)
+    # 3.5. Cross-Sectional Features (БЕЗ data leakage!)
     # ========================================================================
-    print("[4/5] Feature Engineering (public/private test data)...")
+    if include_cross_sectional:
+        print("[3.5/5] Cross-sectional features (без data leakage)...")
 
-    # Обрабатываем public_test
-    if public_test_df is not None:
-        public_test_df = add_all_features(
-            public_test_df,
+        # Шаг 1: Фитим статистики ТОЛЬКО на train
+        print("   * Fitting cross-sectional stats on train data...")
+        cross_sectional_stats = fit_cross_sectional_stats(train_df)
+
+        # Шаг 2: Применяем к train (fit_mode=True)
+        print("   * Transforming train data...")
+        train_df = transform_cross_sectional_features(train_df, fit_mode=True)
+
+        # Шаг 3: Применяем к val/test (используя train статистики)
+        print("   * Transforming val data (using train stats)...")
+        val_df = transform_cross_sectional_features(val_df, stats=cross_sectional_stats)
+
+        print("   * Transforming test data (using train stats)...")
+        test_df = transform_cross_sectional_features(test_df, stats=cross_sectional_stats)
+
+        print("   OK Cross-sectional features добавлены БЕЗ data leakage!\n")
+
+    # Получаем список feature columns (все кроме основных и таргетов)
+    base_cols = ['ticker', 'begin', 'open', 'high', 'low', 'close', 'volume', 'adj_close']
+    target_cols = [col for col in train_df.columns if col.startswith('target_')]
+    feature_cols = [col for col in train_df.columns if col not in base_cols and col not in target_cols]
+
+    print(f"   ИТОГО: {len(feature_cols)} features")
+    print(f"\n   Sample features (first 10):")
+    for i, col in enumerate(feature_cols[:10], 1):
+        print(f"      {i}. {col}")
+    if len(feature_cols) > 10:
+        print(f"      ... and {len(feature_cols) - 10} more\n")
+
+    # ========================================================================
+    # 4. Feature Engineering (holdout test data)
+    # ========================================================================
+    print("[4/5] Feature Engineering (holdout test data)...")
+
+    # Обрабатываем holdout_test
+    if holdout_test_df is not None:
+        # Базовые фичи БЕЗ cross-sectional
+        holdout_test_df = add_all_features(
+            holdout_test_df,
             windows=windows,
-            include_cross_sectional=include_cross_sectional,
+            include_cross_sectional=False,
             include_interactions=include_interactions
         )
         if test_news_df is not None:
-            public_test_df = add_news_features(public_test_df, test_news_df, lag_days=1, rolling_windows=[1, 7, 30])
-        print(f"   OK Processed public_test: {len(public_test_df)} rows, {len(feature_cols)} features")
+            holdout_test_df = add_news_features(holdout_test_df, test_news_df, lag_days=1, rolling_windows=[1, 7, 30])
 
-    # Обрабатываем private_test
-    if private_test_df is not None:
-        private_test_df = add_all_features(
-            private_test_df,
-            windows=windows,
-            include_cross_sectional=include_cross_sectional,
-            include_interactions=include_interactions
-        )
-        if test_news_df is not None:
-            private_test_df = add_news_features(private_test_df, test_news_df, lag_days=1, rolling_windows=[1, 7, 30])
-        print(f"   OK Processed private_test: {len(private_test_df)} rows, {len(feature_cols)} features")
+        # Cross-sectional features (используя train статистики)
+        if include_cross_sectional:
+            holdout_test_df = transform_cross_sectional_features(holdout_test_df, stats=cross_sectional_stats)
+
+        print(f"   OK Processed holdout_test: {len(holdout_test_df)} rows, {len(feature_cols)} features")
+    else:
+        print(f"   [WARNING] No holdout test data found")
 
     print()
 
@@ -217,23 +248,19 @@ def prepare_data(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Сохраняем train/val/test splits
-    train_df.to_parquet(output_dir / 'train.parquet', index=False)
-    val_df.to_parquet(output_dir / 'val.parquet', index=False)
-    test_df.to_parquet(output_dir / 'test.parquet', index=False)
+    train_df.to_csv(output_dir / 'train.csv', index=False)
+    val_df.to_csv(output_dir / 'val.csv', index=False)
+    test_df.to_csv(output_dir / 'test.csv', index=False)
 
     print(f"   OK Saved to {output_dir}/")
-    print(f"      - train.parquet ({len(train_df)} rows)")
-    print(f"      - val.parquet ({len(val_df)} rows)")
-    print(f"      - test.parquet ({len(test_df)} rows)")
+    print(f"      - train.csv ({len(train_df)} rows)")
+    print(f"      - val.csv ({len(val_df)} rows)")
+    print(f"      - test.csv ({len(test_df)} rows)")
 
-    # Сохраняем public/private test
-    if public_test_df is not None:
-        public_test_df.to_parquet(output_dir / 'public_test.parquet', index=False)
-        print(f"      - public_test.parquet ({len(public_test_df)} rows)")
-
-    if private_test_df is not None:
-        private_test_df.to_parquet(output_dir / 'private_test.parquet', index=False)
-        print(f"      - private_test.parquet ({len(private_test_df)} rows)")
+    # Сохраняем holdout test
+    if holdout_test_df is not None:
+        holdout_test_df.to_csv(output_dir / 'holdout_test.csv', index=False)
+        print(f"      - holdout_test.csv ({len(holdout_test_df)} rows)")
 
     # Сохраняем metadata
     metadata = {
@@ -256,14 +283,10 @@ def prepare_data(
         'val_end_date': str(val_end_date.date())
     }
 
-    # Добавляем информацию о public/private test если они есть
-    if public_test_df is not None:
-        metadata['public_test_size'] = len(public_test_df)
-        metadata['public_test_period'] = f"{public_test_df['begin'].min().date()} to {public_test_df['begin'].max().date()}"
-
-    if private_test_df is not None:
-        metadata['private_test_size'] = len(private_test_df)
-        metadata['private_test_period'] = f"{private_test_df['begin'].min().date()} to {private_test_df['begin'].max().date()}"
+    # Добавляем информацию о holdout test если есть
+    if holdout_test_df is not None:
+        metadata['holdout_test_size'] = len(holdout_test_df)
+        metadata['holdout_test_period'] = f"{holdout_test_df['begin'].min().date()} to {holdout_test_df['begin'].max().date()}"
 
     import json
     with open(output_dir / 'metadata.json', 'w') as f:
@@ -285,10 +308,8 @@ def prepare_data(
     print(f"   Val size:       {len(val_df)} ({val_ratio:.1%})")
     print(f"   Test size:      {len(test_df)} ({test_ratio:.1%})")
 
-    if public_test_df is not None:
-        print(f"   Public test:    {len(public_test_df)} rows")
-    if private_test_df is not None:
-        print(f"   Private test:   {len(private_test_df)} rows")
+    if holdout_test_df is not None:
+        print(f"   Holdout test:   {len(holdout_test_df)} rows")
 
     print(f"\n   Saved to: {output_dir}/")
     print("\nNext steps:")

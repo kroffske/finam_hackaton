@@ -87,17 +87,9 @@ def evaluate_model(
     print("[2/4] Loading model...")
 
     if model_type.lower() == 'lightgbm':
-        # Загружаем 4 модели
+        # Загружаем 2 regression модели
         model_return_1d = joblib.load(exp_path / 'model_return_1d.pkl')
         model_return_20d = joblib.load(exp_path / 'model_return_20d.pkl')
-
-        model_prob_up_1d = None
-        model_prob_up_20d = None
-
-        if (exp_path / 'model_prob_up_1d.pkl').exists():
-            model_prob_up_1d = joblib.load(exp_path / 'model_prob_up_1d.pkl')
-        if (exp_path / 'model_prob_up_20d.pkl').exists():
-            model_prob_up_20d = joblib.load(exp_path / 'model_prob_up_20d.pkl')
 
         print(f"   OK Loaded LightGBM models")
 
@@ -115,23 +107,21 @@ def evaluate_model(
     print(f"\n[3/4] Loading {data_split} data...")
 
     preprocessed_dir = project_root / 'data' / 'preprocessed'
-    data_file = preprocessed_dir / f'{data_split}.parquet'
+    data_file = preprocessed_dir / f'{data_split}.csv'
 
     if not data_file.exists():
         print(f"ERROR Data file not found: {data_file}")
         print(f"   Run first: python scripts/1_prepare_data.py")
         return
 
-    df = pd.read_parquet(data_file)
+    df = pd.read_csv(data_file, parse_dates=['begin'])
 
-    print(f"   OK Loaded {len(df)} rows from {data_split}.parquet")
+    print(f"   OK Loaded {len(df)} rows from {data_split}.csv")
 
     # Подготовка данных
     X = df[feature_cols]
     y_return_1d = df['target_return_1d'].values
     y_return_20d = df['target_return_20d'].values
-    y_direction_1d = df['target_direction_1d'].values
-    y_direction_20d = df['target_direction_20d'].values
 
     # ========================================================================
     # 4. Предсказание и оценка
@@ -148,34 +138,17 @@ def evaluate_model(
         pred_return_1d = np.clip(pred_return_1d, -0.5, 0.5)
         pred_return_20d = np.clip(pred_return_20d, -1.0, 1.0)
 
-        if model_prob_up_1d is not None:
-            pred_prob_up_1d = model_prob_up_1d.predict_proba(X_filled)[:, 1]
-        else:
-            pred_prob_up_1d = 1 / (1 + np.exp(-10 * pred_return_1d))
-
-        if model_prob_up_20d is not None:
-            pred_prob_up_20d = model_prob_up_20d.predict_proba(X_filled)[:, 1]
-        else:
-            pred_prob_up_20d = 1 / (1 + np.exp(-5 * pred_return_20d))
-
-        pred_prob_up_1d = np.clip(pred_prob_up_1d, 0.01, 0.99)
-        pred_prob_up_20d = np.clip(pred_prob_up_20d, 0.01, 0.99)
-
     elif model_type.lower() == 'momentum':
         preds = model.predict(X)
         pred_return_1d = preds['pred_return_1d']
         pred_return_20d = preds['pred_return_20d']
-        pred_prob_up_1d = preds['pred_prob_up_1d']
-        pred_prob_up_20d = preds['pred_prob_up_20d']
 
     # Оценка
     metrics = evaluate_predictions(
         y_return_1d,
         y_return_20d,
         pred_return_1d,
-        pred_return_20d,
-        pred_prob_up_1d,
-        pred_prob_up_20d
+        pred_return_20d
     )
 
     # ========================================================================
@@ -186,37 +159,6 @@ def evaluate_model(
     print("=" * 80 + "\n")
 
     print_metrics(metrics, model_name=f"{exp_name} ({data_split})")
-
-    # Confusion Matrix для направления
-    print("\n" + "=" * 80)
-    print("CONFUSION MATRIX (Direction)")
-    print("=" * 80 + "\n")
-
-    # 1-day direction
-    y_true_dir_1d = (y_return_1d > 0).astype(int)
-    y_pred_dir_1d = (pred_return_1d > 0).astype(int)
-
-    from sklearn.metrics import confusion_matrix, classification_report
-
-    cm_1d = confusion_matrix(y_true_dir_1d, y_pred_dir_1d)
-    print("1-DAY DIRECTION:")
-    print(f"                Predicted")
-    print(f"               Down   Up")
-    print(f"Actual Down  {cm_1d[0, 0]:6d} {cm_1d[0, 1]:5d}")
-    print(f"       Up    {cm_1d[1, 0]:6d} {cm_1d[1, 1]:5d}")
-    print()
-
-    # 20-day direction
-    y_true_dir_20d = (y_return_20d > 0).astype(int)
-    y_pred_dir_20d = (pred_return_20d > 0).astype(int)
-
-    cm_20d = confusion_matrix(y_true_dir_20d, y_pred_dir_20d)
-    print("20-DAY DIRECTION:")
-    print(f"                Predicted")
-    print(f"               Down   Up")
-    print(f"Actual Down  {cm_20d[0, 0]:6d} {cm_20d[0, 1]:5d}")
-    print(f"       Up    {cm_20d[1, 0]:6d} {cm_20d[1, 1]:5d}")
-    print()
 
     # ========================================================================
     # Сохранение отчета (опционально)
@@ -241,29 +183,12 @@ def evaluate_model(
             f.write("METRICS:\n")
             f.write("-" * 80 + "\n")
             f.write(f"1-DAY:\n")
-            f.write(f"  MAE:   {metrics['mae_1d']:.6f}\n")
-            f.write(f"  Brier: {metrics['brier_1d']:.6f}\n")
-            f.write(f"  DA:    {metrics['da_1d']:.4f} ({metrics['da_1d']*100:.2f}%)\n\n")
+            f.write(f"  MAE:   {metrics['mae_1d']:.6f}\n\n")
 
             f.write(f"20-DAY:\n")
-            f.write(f"  MAE:   {metrics['mae_20d']:.6f}\n")
-            f.write(f"  Brier: {metrics['brier_20d']:.6f}\n")
-            f.write(f"  DA:    {metrics['da_20d']:.4f} ({metrics['da_20d']*100:.2f}%)\n\n")
+            f.write(f"  MAE:   {metrics['mae_20d']:.6f}\n\n")
 
-            if 'score_total' in metrics:
-                f.write(f"SCORE TOTAL: {metrics['score_total']:.6f}\n\n")
-
-            f.write("\nCONFUSION MATRIX (1-DAY):\n")
-            f.write(f"                Predicted\n")
-            f.write(f"               Down   Up\n")
-            f.write(f"Actual Down  {cm_1d[0, 0]:6d} {cm_1d[0, 1]:5d}\n")
-            f.write(f"       Up    {cm_1d[1, 0]:6d} {cm_1d[1, 1]:5d}\n\n")
-
-            f.write("\nCONFUSION MATRIX (20-DAY):\n")
-            f.write(f"                Predicted\n")
-            f.write(f"               Down   Up\n")
-            f.write(f"Actual Down  {cm_20d[0, 0]:6d} {cm_20d[0, 1]:5d}\n")
-            f.write(f"       Up    {cm_20d[1, 0]:6d} {cm_20d[1, 1]:5d}\n")
+            f.write(f"MEAN MAE: {metrics['mae_mean']:.6f}\n")
 
         print(f"   OK Saved report: {report_path}\n")
 
@@ -275,14 +200,9 @@ def evaluate_model(
     print("=" * 80 + "\n")
 
     print(f" Results ({data_split}):")
-    print(f"   MAE 1d:  {metrics['mae_1d']:.6f}")
-    print(f"   MAE 20d: {metrics['mae_20d']:.6f}")
-    print(f"   Brier 1d:  {metrics['brier_1d']:.6f}")
-    print(f"   Brier 20d: {metrics['brier_20d']:.6f}")
-    print(f"   DA 1d:  {metrics['da_1d']:.4f} ({metrics['da_1d']*100:.2f}%)")
-    print(f"   DA 20d: {metrics['da_20d']:.4f} ({metrics['da_20d']*100:.2f}%)")
-    if 'score_total' in metrics:
-        print(f"   Score Total: {metrics['score_total']:.6f}")
+    print(f"   MAE 1d:   {metrics['mae_1d']:.6f}")
+    print(f"   MAE 20d:  {metrics['mae_20d']:.6f}")
+    print(f"   MAE mean: {metrics['mae_mean']:.6f}")
 
 
 if __name__ == "__main__":

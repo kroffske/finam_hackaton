@@ -20,18 +20,16 @@
 **Output:** Для каждого актива:
 - `pred_return_1d` — прогноз доходности на 1 день
 - `pred_return_20d` — прогноз доходности на 20 дней
-- `pred_prob_up_1d` — вероятность роста за 1 день
-- `pred_prob_up_20d` — вероятность роста за 20 дней
+- `pred_prob_up_1d` — вероятность роста за 1 день (генерируется через sigmoid)
+- `pred_prob_up_20d` — вероятность роста за 20 дней (генерируется через sigmoid)
 
-**Метрики:**
+**Метрика:**
 ```
-Score = 0.7 × MAE_norm + 0.3 × Brier_norm + 0.1 × DA
+Score = MAE (Mean Absolute Error)
 ```
 где:
-- `MAE` = Mean Absolute Error для доходности
-- `Brier` = Brier Score для вероятностей (калибровка)
-- `DA` = Directional Accuracy (доля верно угаданных знаков)
-- `_norm` = нормировка относительно baseline (1 - metric/baseline_metric)
+- `MAE` = Mean Absolute Error для доходности (меньше = лучше)
+- Усредняется по обоим горизонтам (1d и 20d)
 
 **Ограничения:**
 - Цены доступны до `t` включительно
@@ -60,12 +58,11 @@ src/finam/
 
 ### Описание модулей
 
-**metrics.py** — расчёт метрик
+**metrics.py** — расчёт метрик (только MAE)
 ```python
 def mae(y_true, y_pred) -> float
-def brier_score(y_true, prob_up) -> float
-def directional_accuracy(y_true, y_pred) -> float
-def normalized_score(mae, brier, da, baseline_mae, baseline_brier) -> float
+def evaluate_predictions(y_true_1d, y_true_20d, pred_1d, pred_20d) -> dict
+def print_metrics(metrics: dict, model_name: str) -> None
 ```
 
 **features.py** — генерация признаков
@@ -77,14 +74,14 @@ def add_all_features(df: pd.DataFrame, windows: list[int] = [5, 20]) -> pd.DataF
 ```
 > Референс: `scripts/baseline_solution.py:60-96`
 
-**model.py** — обёртка над моделями
+**model.py** — обёртка над моделями (только regression)
 ```python
 class BaseModel:
-    def fit(X, y) -> None
-    def predict(X) -> dict[str, np.ndarray]  # returns {pred_return_1d, pred_return_20d, ...}
+    def fit(X, y_return_1d, y_return_20d) -> None
+    def predict(X) -> dict  # returns {pred_return_1d, pred_return_20d}
 
 class MomentumBaseline(BaseModel):  # baseline из scripts/
-class LightGBMModel(BaseModel):     # простая ML модель
+class LightGBMModel(BaseModel):     # 2 regression модели (MAE loss)
 ```
 
 **pipeline.py** — train/predict workflow
@@ -190,11 +187,12 @@ ruff check src/ && python -m pytest tests/ -q
 ```python
 # ✅ GOOD: Работает в Colab
 !pip install git+https://github.com/user/finam.git
-from finam.pipeline import train_pipeline, predict_pipeline
+from finam.model import LightGBMModel
+from finam.features import add_all_features
 
 # ✅ GOOD: Minimal dependencies
 # pandas, numpy, scikit-learn — уже в Colab
-# joblib, pyyaml — легковесные
+# lightgbm, joblib, pyyaml — легковесные
 ```
 
 ---
@@ -220,24 +218,29 @@ test_df = pd.read_csv('test_candles.csv')
 train_df = add_all_features(train_df, windows=[5, 20])
 test_df = add_all_features(test_df, windows=[5, 20])
 
-# 5. Train
-model = MomentumBaseline(window_size=5)
-model.fit(train_df)
+# 5. Подготовка таргетов
+X_train = train_df[feature_cols]
+y_return_1d = train_df['target_return_1d'].values
+y_return_20d = train_df['target_return_20d'].values
 
-# 6. Predict
-predictions = model.predict(test_df)
-submission_df = pd.DataFrame(predictions)
-submission_df.to_csv('submission.csv', index=False)
+# 6. Train (только regression для MAE)
+model = LightGBMModel()
+model.fit(X_train, y_return_1d, y_return_20d)
 
-# 7. Evaluate
-score = normalized_score(
-    mae(y_true, y_pred),
-    brier_score(y_true, prob_up),
-    da(y_true, y_pred),
-    baseline_mae=0.05,
-    baseline_brier=0.25
+# 7. Predict
+X_test = test_df[feature_cols]
+predictions = model.predict(X_test)  # {pred_return_1d, pred_return_20d}
+
+# 8. Evaluate
+from finam.metrics import evaluate_predictions
+metrics = evaluate_predictions(
+    y_true_1d, y_true_20d,
+    predictions['pred_return_1d'],
+    predictions['pred_return_20d']
 )
-print(f"Score: {score:.4f}")
+print(f"MAE 1d: {metrics['mae_1d']:.6f}")
+print(f"MAE 20d: {metrics['mae_20d']:.6f}")
+print(f"MAE mean: {metrics['mae_mean']:.6f}")
 ```
 
 ---
@@ -324,15 +327,32 @@ def add_news_features(candles_df, news_df, lag_days=1, rolling_windows=[1, 7, 30
 - Автоматический сдвиг дат для безопасного джойна
 
 **Результаты:**
-- ✅ Feature importance: топ-2 признака (1007.5 и 907.0)
-- ✅ Улучшение Score: +109% vs Momentum baseline
-- ✅ MAE 1d: +16.5% лучше baseline
+- ✅ Feature importance: топ-2 признака
+- ✅ Улучшение MAE vs Momentum baseline
 
 **Следующие шаги:**
 1. Sentiment analysis (VADER, FinBERT)
 2. Topic modeling (LDA, BERTopic)
 3. Entity extraction (какие компании упоминаются)
 4. Weighted average sentiment по тикерам
+
+---
+
+### Итерация 6: Упрощение под MAE ✅ РЕАЛИЗОВАНО
+
+**Цель:** Упростить проект, убрав Brier Score, DA и калибровку.
+
+**Изменения:**
+- Удалены classification модели (prob_up_*)
+- Удален класс `CalibratedLightGBMModel`
+- Упрощены метрики: только MAE для 1d и 20d
+- `pred_prob_up_*` генерируются через sigmoid в submission для совместимости с форматом
+- Ускорение обучения: только 2 регрессора вместо 4 моделей
+
+**Результат:**
+- ✅ Упрощение кода на ~40%
+- ✅ Фокус на главной метрике (MAE)
+- ✅ Сохранение совместимости с submission форматом
 
 ---
 
