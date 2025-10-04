@@ -9,7 +9,6 @@ News Features для FORECAST задачи
 """
 
 import pandas as pd
-import numpy as np
 
 
 def compute_daily_news_count(

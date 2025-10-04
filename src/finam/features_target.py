@@ -4,7 +4,6 @@ Target Engineering для FORECAST задачи
 Функции для вычисления таргетов доходности на разных горизонтах
 """
 
-import numpy as np
 import pandas as pd
 
 

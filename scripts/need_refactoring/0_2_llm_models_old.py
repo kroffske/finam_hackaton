@@ -4,7 +4,6 @@ import time
 import re
 import pandas as pd
 from openai import OpenAI
-from datetime import datetime
 
 # ============================================
 # НАСТРОЙКИ - ИЗМЕНИ ЗДЕСЬ
@@ -206,18 +205,18 @@ else:
 news_df = news_df.reset_index(drop=True)
 
 if len(news_df) == 0:
-    print(f"❌ После фильтрации по датам не осталось новостей!")
+    print("❌ После фильтрации по датам не осталось новостей!")
     exit(1)
 
 print(f"\n{'='*60}")
-print(f"🚀 ЗАПУСК АНАЛИЗА")
+print("🚀 ЗАПУСК АНАЛИЗА")
 print(f"{'='*60}")
 print(f"Модель: {CURRENT_MODEL} ({MODEL})")
 print(f"Batch size: {BATCH_SIZE}")
 print(f"📅 Период: {date_range_str}")
 print(f"📊 Отфильтровано: {len(news_df)} из {original_count} новостей")
 print(f"Примерное количество запросов: {(len(news_df)-1)//BATCH_SIZE + 1}")
-print(f"\n💰 ЦЕНЫ МОДЕЛИ:")
+print("\n💰 ЦЕНЫ МОДЕЛИ:")
 print(f"  Input:  ${MODEL_CONFIG['input_price']:.3f} / 1M токенов")
 print(f"  Output: ${MODEL_CONFIG['output_price']:.3f} / 1M токенов")
 print(f"{'='*60}\n")
@@ -256,7 +255,7 @@ for i in range(0, len(news_df), BATCH_SIZE):
 
         print(f"✓ {usage.prompt_tokens}↑/{usage.completion_tokens}↓ | Потрачено: ${total_cost:.4f}")
     else:
-        print(f"⚠️ Ошибка")
+        print("⚠️ Ошибка")
 
     # Сохраняем промежуточный результат
     start_str = START_DATE.replace('-', '') if START_DATE else 'all'
@@ -272,7 +271,7 @@ elapsed_time = time.time() - start_time
 # ============================================
 
 print(f"\n{'='*60}")
-print(f"📊 РЕЗУЛЬТАТЫ ТЕСТА")
+print("📊 РЕЗУЛЬТАТЫ ТЕСТА")
 print(f"{'='*60}")
 print(f"Модель: {CURRENT_MODEL}")
 print(f"Период: {date_range_str}")
@@ -281,7 +280,7 @@ print(f"Успешных: {news_df['sentiment'].notna().sum()}")
 print(f"Ошибок: {news_df['sentiment'].isna().sum()}")
 print(f"Время выполнения: {elapsed_time/60:.2f} минут")
 
-print(f"\n📈 ИСПОЛЬЗОВАНО ТОКЕНОВ:")
+print("\n📈 ИСПОЛЬЗОВАНО ТОКЕНОВ:")
 print(f"  Input:  {total_input_tokens:,}")
 print(f"  Output: {total_output_tokens:,}")
 print(f"  TOTAL:  {total_input_tokens + total_output_tokens:,}")
@@ -311,7 +310,7 @@ if total_input_tokens > 0:
 # Статистика
 valid_sentiments = news_df[news_df['sentiment'].notna()]
 if len(valid_sentiments) > 0:
-    print(f"\n📋 РАСПРЕДЕЛЕНИЕ SENTIMENT:")
+    print("\n📋 РАСПРЕДЕЛЕНИЕ SENTIMENT:")
     sentiment_counts = valid_sentiments['sentiment'].value_counts().sort_index()
     for sent, count in sentiment_counts.items():
         label = {-1: "📉 Негатив", 0: "➖ Нейтрал", 1: "📈 Позитив"}.get(sent, "❓")
@@ -320,7 +319,7 @@ if len(valid_sentiments) > 0:
     print(f"\n📊 Средняя уверенность: {valid_sentiments['confidence'].mean():.2f}/10")
 
     # Примеры
-    print(f"\n📰 ПРИМЕРЫ РЕЗУЛЬТАТОВ:")
+    print("\n📰 ПРИМЕРЫ РЕЗУЛЬТАТОВ:")
     for idx, row in valid_sentiments.head(3).iterrows():
         sent_label = {1: "📈 ПОЗИТИВ", -1: "📉 НЕГАТИВ", 0: "➖ НЕЙТРАЛ"}.get(row['sentiment'], "❓")
         print(f"\n{sent_label} (уверенность: {row['confidence']}/10) | {row['tickers']}")

@@ -5,7 +5,6 @@
 """
 
 import pandas as pd
-import numpy as np
 from typing import List, Dict
 
 from .metrics import evaluate_predictions, print_metrics
@@ -74,7 +73,7 @@ def compare_models(
         )
 
         # 2. Предсказание на test
-        print(f"[PREDICT] Predicting on test...")
+        print("[PREDICT] Predicting on test...")
         preds = model.predict(X_test)
 
         # 3. Оценка метрик

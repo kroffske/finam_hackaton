@@ -246,7 +246,7 @@ def run_classification(args: argparse.Namespace) -> None:
         print(f"   Topics:    {', '.join(classification.get('key_topics', [])[:3])}")
 
         if not args.skip_errors and "error" in classification:
-            print(f"\nERROR: Stopping due to API failure. Use --skip-errors to continue.")
+            print("\nERROR: Stopping due to API failure. Use --skip-errors to continue.")
             sys.exit(1)
 
         if idx < total - 1:

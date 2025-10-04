@@ -25,7 +25,7 @@ import numpy as np
 import joblib
 
 from finam.model import MomentumBaseline
-from finam.metrics import evaluate_predictions, print_metrics
+from finam.metrics import evaluate_predictions
 
 
 def train_baseline(exp_name: str = 'baseline'):
@@ -47,8 +47,8 @@ def train_baseline(exp_name: str = 'baseline'):
     preprocessed_dir = project_root / 'data' / 'preprocessed'
 
     if not (preprocessed_dir / 'train.csv').exists():
-        print(f"ERROR Preprocessed data not found!")
-        print(f"   Run first: python scripts/1_prepare_data.py")
+        print("ERROR Preprocessed data not found!")
+        print("   Run first: python scripts/1_prepare_data.py")
         return
 
     train_df = pd.read_csv(preprocessed_dir / 'train.csv', parse_dates=['begin'])
@@ -114,7 +114,7 @@ def train_baseline(exp_name: str = 'baseline'):
         y_dir_20d_train
     )
 
-    print(f"   OK Training complete!\n")
+    print("   OK Training complete!\n")
 
     # ========================================================================
     # 4. Оценка на всех splits
@@ -148,12 +148,12 @@ def train_baseline(exp_name: str = 'baseline'):
         print(f"[METRICS] {split_name.upper()}")
         print(f"{'='*70}")
 
-        print(f"\n1-DAY METRICS:")
+        print("\n1-DAY METRICS:")
         print(f"  MAE:        {metrics['mae_1d']:.6f}")
         print(f"  Brier:      {metrics['brier_1d']:.6f}")
         print(f"  DA:         {metrics['da_1d']:.4f} ({metrics['da_1d']*100:.2f}%)")
 
-        print(f"\n20-DAY METRICS:")
+        print("\n20-DAY METRICS:")
         print(f"  MAE:        {metrics['mae_20d']:.6f}")
         print(f"  Brier:      {metrics['brier_20d']:.6f}")
         print(f"  DA:         {metrics['da_20d']:.4f} ({metrics['da_20d']*100:.2f}%)")
@@ -229,7 +229,7 @@ def train_baseline(exp_name: str = 'baseline'):
     print(f" Experiment: {exp_name}")
     print(f"   Output dir: {exp_dir}")
     print()
-    print(f"   Test metrics:")
+    print("   Test metrics:")
     print(f"      MAE 1d:  {all_metrics['test']['mae_1d']:.6f}")
     print(f"      MAE 20d: {all_metrics['test']['mae_20d']:.6f}")
     print(f"      Brier 1d:  {all_metrics['test']['brier_1d']:.6f}")
@@ -238,10 +238,10 @@ def train_baseline(exp_name: str = 'baseline'):
     print(f"      DA 20d: {all_metrics['test']['da_20d']:.4f} ({all_metrics['test']['da_20d']*100:.2f}%)")
 
     print("\n Next steps:")
-    print(f"   # Generate submission files")
+    print("   # Generate submission files")
     print(f"   python scripts/4_generate_submission.py --run-id {exp_dir.name}")
-    print(f"\n   # Collect all experiments")
-    print(f"   python scripts/collect_experiments.py")
+    print("\n   # Collect all experiments")
+    print("   python scripts/collect_experiments.py")
 
 
 if __name__ == "__main__":

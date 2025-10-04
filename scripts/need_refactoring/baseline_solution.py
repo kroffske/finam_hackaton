@@ -7,7 +7,6 @@ Baseline решение для соревнования.
 - Это baseline для сравнения с более сложными решениями
 """
 
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -141,7 +140,7 @@ class BaselineSolution:
         self.predictions = test_data
 
         print(f"   ✓ Создано {len(self.predictions)} предсказаний")
-        print(f"\n   📊 Статистика предсказаний:")
+        print("\n   📊 Статистика предсказаний:")
         print(f"      Средняя pred_return_1d:  {test_data['pred_return_1d'].mean():.6f}")
         print(f"      Средняя pred_return_20d: {test_data['pred_return_20d'].mean():.6f}")
         print(f"      Средняя pred_prob_up_1d: {test_data['pred_prob_up_1d'].mean():.4f}")
@@ -149,7 +148,7 @@ class BaselineSolution:
 
     def save_submission(self, output_path: str = "submission.csv"):
         """Сохранение submission файла"""
-        print(f"\n💾 Сохранение submission...")
+        print("\n💾 Сохранение submission...")
 
         submission = self.predictions[[
             'ticker', 'begin',
@@ -161,7 +160,7 @@ class BaselineSolution:
 
         print(f"   ✓ Submission сохранен: {output_path}")
         print(f"   Строк: {len(submission)}")
-        print(f"\n   📋 Первые строки:")
+        print("\n   📋 Первые строки:")
         print(submission.head(10).to_string(index=False))
 
     def run(self, train_path: str, public_test_path: str,
@@ -186,11 +185,11 @@ class BaselineSolution:
         print("\n" + "=" * 70)
         print("✅ BASELINE ГОТОВ!")
         print("=" * 70)
-        print(f"\n💡 Следующие шаги:")
+        print("\n💡 Следующие шаги:")
         print(f"   1. Оцените на public:  python scripts/evaluate_submission.py {output_path} public")
         print(f"   2. Оцените на private: python scripts/evaluate_submission.py {output_path} private")
-        print(f"   3. Используйте это решение как отправную точку для улучшений")
-        print(f"   4. Попробуйте добавить ML модели, NLP для новостей и т.д.")
+        print("   3. Используйте это решение как отправную точку для улучшений")
+        print("   4. Попробуйте добавить ML модели, NLP для новостей и т.д.")
 
 
 if __name__ == "__main__":

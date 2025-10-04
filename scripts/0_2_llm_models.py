@@ -25,6 +25,7 @@ Configuration:
     - Set OPENROUTER_API_KEY environment variable
     - Adjust CONCURRENCY, ITEMS_PER_CALL below if needed
 """
+
 from __future__ import annotations
 
 import argparse
@@ -46,7 +47,7 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from finam.llm_sentiment import (
+from finam.llm_sentiment import (  # noqa: E402
     AdaptiveLimiter,
     analyze_news_batch,
     hash_news_row,
@@ -166,6 +167,7 @@ def process_file(
     start_date: str | None,
     end_date: str | None,
     logger: logging.Logger,
+    force: bool = False,
 ) -> None:
     """Process single news file.
 
@@ -181,9 +183,9 @@ def process_file(
         print(f"❌ File not found: {input_path}")
         return
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("🚀 FAST PARALLEL LLM SENTIMENT ANALYSIS")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     # Check if model supports structured outputs
     use_structured = supports_structured_outputs(MODEL)
@@ -191,7 +193,9 @@ def process_file(
     logger.info("Starting LLM sentiment analysis")
     logger.info(f"Input file: {input_path}")
     logger.info(f"Model: {MODEL}")
-    logger.info(f"Structured outputs: {'enabled' if use_structured else 'disabled (fallback to text parsing)'}")
+    logger.info(
+        f"Structured outputs: {'enabled' if use_structured else 'disabled (fallback to text parsing)'}"
+    )
     logger.info(f"Concurrency: {CONCURRENCY}, Batch size: {ITEMS_PER_CALL}")
 
     news_df = pd.read_csv(input_path)
@@ -205,8 +209,10 @@ def process_file(
         if start_date:
             news_df = news_df[news_df["publish_date"] >= pd.to_datetime(start_date)]
         if end_date:
-            end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(
-                seconds=1
+            end_dt = (
+                pd.to_datetime(end_date)
+                + pd.Timedelta(days=1)
+                - pd.Timedelta(seconds=1)
             )
             news_df = news_df[news_df["publish_date"] <= end_dt]
 
@@ -229,7 +235,7 @@ def process_file(
     print(f"Batch size: {ITEMS_PER_CALL} items/request")
     print(f"Date range: {date_range}")
     print(f"Filtered: {len(news_df):,} / {original_count:,} news")
-    print(f"Est. requests: {(len(news_df)-1)//ITEMS_PER_CALL + 1}")
+    print(f"Est. requests: {(len(news_df) - 1) // ITEMS_PER_CALL + 1}")
 
     # Show pricing
     prices = MODEL_PRICES.get(MODEL, {})
@@ -237,7 +243,7 @@ def process_file(
         print("\n💰 Pricing:")
         print(f"   Input:  ${prices['input']:.3f} / 1M tokens")
         print(f"   Output: ${prices['output']:.3f} / 1M tokens")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     # Initialize columns
     if "sentiment" not in news_df.columns:
@@ -260,6 +266,12 @@ def process_file(
     output_dir = PROJECT_ROOT / "data" / "preprocessed_news"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"{output_prefix}.csv"
+
+    if output_file.exists() and not force:
+        print(
+            f"📂 Found existing output: {output_file.name} — skipping (use --force-llm to regenerate)"
+        )
+        return
 
     if output_file.exists():
         print(f"📂 Found existing output: {output_file.name}")
@@ -368,21 +380,21 @@ def process_file(
     news_df.to_csv(output_file, index=False)
     elapsed = time.time() - start_time
 
-    logger.info(f"Processing complete in {elapsed/60:.1f} minutes")
+    logger.info(f"Processing complete in {elapsed / 60:.1f} minutes")
     logger.info(f"Total tokens: {total_input_tokens + total_output_tokens:,}")
 
     # ============================================
     # RESULTS
     # ============================================
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("📊 RESULTS")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     print(f"Model: {MODEL}")
     print(f"Date range: {date_range}")
     print(f"Total items: {len(news_df):,}")
     print(f"Processed: {news_df['sentiment'].notna().sum():,}")
     print(f"Failed: {news_df['sentiment'].isna().sum():,}")
-    print(f"Time: {elapsed/60:.1f} min")
+    print(f"Time: {elapsed / 60:.1f} min")
 
     print("\n📈 Token usage:")
     print(f"   Input:  {total_input_tokens:,}")
@@ -409,7 +421,7 @@ def process_file(
             print(f"\n🔮 Full dataset projection ({original_count:,} items):")
             print(f"   Tokens: {proj_in:,.0f} input / {proj_out:,.0f} output")
             print(f"   Cost: ${proj_cost:.2f}")
-            print(f"   Time: ~{proj_time/60:.1f} min")
+            print(f"   Time: ~{proj_time / 60:.1f} min")
 
     # Distribution
     valid = news_df[news_df["sentiment"].notna()]
@@ -437,7 +449,7 @@ def process_file(
             print(f"   {row['title'][:70]}...")
 
     print(f"\n💾 Saved to: {output_file}")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     logger.info(f"Results saved to: {output_file}")
     logger.info("=" * 70)
@@ -467,6 +479,11 @@ def main() -> None:
         type=str,
         default=None,
         help="End date filter (YYYY-MM-DD) or None for all dates",
+    )
+    parser.add_argument(
+        "--force-llm",
+        action="store_true",
+        help="Regenerate sentiment even if cached files exist",
     )
     args = parser.parse_args()
 
@@ -500,9 +517,9 @@ def main() -> None:
     # Process each file
     for file_type in files_to_process:
         config = FILES_CONFIG[file_type]
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"Processing {file_type.upper()} data: {config['input']}")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
         process_file(
             input_file=config["input"],
@@ -510,9 +527,10 @@ def main() -> None:
             start_date=start_date,
             end_date=end_date,
             logger=logger,
+            force=args.force_llm,
         )
 
-    print(f"\n\n✅ All files processed!")
+    print("\n\n✅ All files processed!")
     print(f"📋 Full logs: {log_file}")
 
 

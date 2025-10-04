@@ -1,5 +1,58 @@
 # ML Pipeline для FORECAST хакатона
 
+## 🚀 Быстрый старт
+
+```bash
+# 1. Создаем и активируем виртуальную среду
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+python -m pip install --upgrade pip
+
+# 2. Ставим Poetry и зависимости
+python -m pip install poetry
+poetry install --no-root           # или poetry install
+
+# 3. Запускаем полный train-пайплайн
+poetry run python train.py --exp-name my_experiment --model-type lightgbm --start-date 2025-01-01 --skip-llm
+poetry run python train.py --exp-name my_experiment --model-type lightgbm --start-date 2025-01-01 --force-llm
+
+# 4. Генерируем сабмишн (последняя модель хранится в outputs/latest)
+poetry run python inference.py --run-id latest 
+
+
+# Опционально: если есть OPENROUTER ключ для LLM
+export OPENROUTER_API_KEY="sk-..."
+```
+
+> **Примечание.** Все команды выполняются из корня репозитория. Скрипт `train.py`
+> собирает пайплайн из README (0_1 → 0_2 → … → 2_train → collect), а `inference.py`
+> переиспользует те же стадии для тестовых данных и вызывает генерацию submission.
+
+## 🚀 Быстрый старт
+
+```bash
+# 0. (опционально) задать ключ для LLM-сентимента
+export OPENROUTER_API_KEY='your-key-here'
+
+# 1. Создаём виртуальное окружение и ставим Poetry
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install --upgrade pip
+pip install poetry
+
+# 2. Устанавливаем зависимости проекта
+poetry install
+
+# 3. Запускаем полный train-пайплайн (создаст outputs/<run_id>)
+poetry run python train.py --exp-name my_experiment --model-type lightgbm
+
+# 4. Генерируем сабмишен (по умолчанию использует outputs/latest)
+poetry run python inference.py --run-id latest --full
+```
+
+После успешного обучения скрипт `train.py` обновляет симлинк `outputs/latest`,
+который удобно использовать для инференса и генерации submission.
+
 ## 🎯 Текущий статус
 
 **✅ Pipeline готов!**

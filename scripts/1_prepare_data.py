@@ -24,7 +24,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / 'src'))
 
 import pandas as pd
-import numpy as np
 
 from finam.features import (
     add_all_features,
@@ -112,7 +111,7 @@ def prepare_data(
         print(f"   OK Loaded {len(ticker_news_df)} ticker news features (train, {feature_type})")
     else:
         print(f"   [WARNING] Ticker news features not found: {ticker_news_path}")
-        print(f"   [INFO] Run: python scripts/0_1_news_ticker_features.py")
+        print("   [INFO] Run: python scripts/0_1_news_ticker_features.py")
 
     # Загружаем holdout test данные
     holdout_test_df = None
@@ -154,12 +153,12 @@ def prepare_data(
         df = join_ticker_news_features(df, ticker_news_df, lag_days=1)
         print(f"      OK Added {len([c for c in df.columns if c.startswith('news_count_')])} news features")
 
-    print(f"   OK Created базовые признаки")
+    print("   OK Created базовые признаки")
 
     # Вычисляем таргеты для всех 20 горизонтов
     print("   * Computing 20 target returns...")
     df = compute_multi_horizon_targets(df, horizons=list(range(1, 21)))
-    print(f"   OK Added targets: target_return_1d through target_return_20d")
+    print("   OK Added targets: target_return_1d through target_return_20d")
 
     # ========================================================================
     # 3. Train/Val/Test Split (temporal)
@@ -198,7 +197,7 @@ def prepare_data(
     print(f"\n   Train: {len(train_df):5d} rows ({train_df['begin'].min().date()} to {train_df['begin'].max().date()})")
     print(f"   Val:   {len(val_df):5d} rows ({val_df['begin'].min().date()} to {val_df['begin'].max().date()})")
     print(f"   Test:  {len(test_df):5d} rows ({test_df['begin'].min().date()} to {test_df['begin'].max().date()})")
-    print(f"\n   Split dates:")
+    print("\n   Split dates:")
     print(f"      train_end: {train_end_date.date()}")
     print(f"      val_end:   {val_end_date.date()}\n")
 
@@ -231,7 +230,7 @@ def prepare_data(
     feature_cols = [col for col in train_df.columns if col not in base_cols and col not in target_cols]
 
     print(f"   ИТОГО: {len(feature_cols)} features")
-    print(f"\n   Sample features (first 10):")
+    print("\n   Sample features (first 10):")
     for i, col in enumerate(feature_cols[:10], 1):
         print(f"      {i}. {col}")
     if len(feature_cols) > 10:
@@ -261,7 +260,7 @@ def prepare_data(
 
         print(f"   OK Processed holdout_test: {len(holdout_test_df)} rows, {len(feature_cols)} features")
     else:
-        print(f"   [WARNING] No holdout test data found")
+        print("   [WARNING] No holdout test data found")
 
     print()
 
@@ -319,7 +318,7 @@ def prepare_data(
     with open(output_dir / 'metadata.json', 'w') as f:
         json.dump(metadata, f, indent=2)
 
-    print(f"   OK Saved metadata.json\n")
+    print("   OK Saved metadata.json\n")
 
     # ========================================================================
     # Summary

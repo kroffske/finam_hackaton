@@ -6,7 +6,6 @@
 """
 
 import numpy as np
-import pandas as pd
 
 
 def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:

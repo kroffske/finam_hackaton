@@ -96,8 +96,8 @@ def main():
     preprocessed_dir = project_root / 'data' / 'preprocessed'
 
     if not (preprocessed_dir / 'train.csv').exists():
-        print(f"ERROR Preprocessed data not found!")
-        print(f"   Run first: python scripts/1_prepare_data.py")
+        print("ERROR Preprocessed data not found!")
+        print("   Run first: python scripts/1_prepare_data.py")
         return
 
     train_df = pd.read_csv(preprocessed_dir / 'train.csv', parse_dates=['begin'])

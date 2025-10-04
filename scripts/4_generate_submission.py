@@ -23,7 +23,6 @@ Usage:
 import sys
 from pathlib import Path
 import argparse
-from datetime import datetime
 
 # Добавляем src/ в PYTHONPATH
 project_root = Path(__file__).parent.parent
@@ -57,13 +56,13 @@ def generate_submission(
     # ========================================================================
     # 1. Проверка путей
     # ========================================================================
-    print(f"[1/5] Loading experiment configuration...")
+    print("[1/5] Loading experiment configuration...")
 
     exp_dir = project_root / 'outputs' / run_id
 
     if not exp_dir.exists():
         print(f"   ERROR: Experiment directory not found: {exp_dir}")
-        print(f"\n   Available experiments:")
+        print("\n   Available experiments:")
         outputs_dir = project_root / 'outputs'
         if outputs_dir.exists():
             for d in sorted(outputs_dir.iterdir()):
@@ -87,7 +86,7 @@ def generate_submission(
     # ========================================================================
     # 2. Загрузка модели
     # ========================================================================
-    print(f"\n[2/5] Loading trained model...")
+    print("\n[2/5] Loading trained model...")
 
     # Ищем модель (может быть model_1d.pkl, model_20d.pkl или model.pkl)
     model_files = list(exp_dir.glob('model*.pkl'))
@@ -106,7 +105,7 @@ def generate_submission(
     # ========================================================================
     # 3. Загрузка preprocessed данных
     # ========================================================================
-    print(f"\n[3/5] Loading preprocessed test data...")
+    print("\n[3/5] Loading preprocessed test data...")
 
     if preprocessed_dir is None:
         preprocessed_dir = project_root / 'data' / 'preprocessed'
@@ -130,8 +129,8 @@ def generate_submission(
     holdout_test_path = preprocessed_dir / 'holdout_test.csv'
 
     if not holdout_test_path.exists():
-        print(f"\n   ERROR: holdout_test.csv not found!")
-        print(f"   Run: python scripts/1_prepare_data.py")
+        print("\n   ERROR: holdout_test.csv not found!")
+        print("   Run: python scripts/1_prepare_data.py")
         return
 
     holdout_test_df = pd.read_csv(holdout_test_path, parse_dates=['begin'])
@@ -140,7 +139,7 @@ def generate_submission(
     # ========================================================================
     # 4. Генерация предсказаний
     # ========================================================================
-    print(f"\n[4/5] Generating predictions...")
+    print("\n[4/5] Generating predictions...")
 
     # Определяем output директорию
     if output_dir is None:
@@ -150,7 +149,7 @@ def generate_submission(
         submission_dir.mkdir(parents=True, exist_ok=True)
 
     # Подготовка данных
-    print(f"\n   Processing holdout_test...")
+    print("\n   Processing holdout_test...")
     X_test = holdout_test_df[feature_cols].fillna(0)
 
     # Проверяем структуру моделей и делаем предсказания
@@ -191,7 +190,7 @@ def generate_submission(
 
     # По умолчанию фильтруем на последнюю дату для каждого тикера (если не указан --full)
     if not full:
-        print(f"      Filtering to latest date per ticker (use --full for all dates)...")
+        print("      Filtering to latest date per ticker (use --full for all dates)...")
         submission = submission.sort_values('begin').groupby('ticker').tail(1).reset_index(drop=True)
         print(f"      Filtered to {len(submission)} rows (one per ticker)")
 
@@ -206,7 +205,7 @@ def generate_submission(
         submission = submission.rename(columns=rename_dict)
 
     print(f"      Generated {len(submission)} predictions with {len(preds)} horizons")
-    print(f"      Sample stats:")
+    print("      Sample stats:")
     print(f"         p1:  mean={submission['p1'].mean():.6f}, std={submission['p1'].std():.6f}")
     print(f"         p10: mean={submission['p10'].mean():.6f}, std={submission['p10'].std():.6f}")
     print(f"         p20: mean={submission['p20'].mean():.6f}, std={submission['p20'].std():.6f}")
@@ -214,7 +213,7 @@ def generate_submission(
     # ========================================================================
     # 5. Сохранение submission файлов
     # ========================================================================
-    print(f"\n[5/5] Saving submission file...")
+    print("\n[5/5] Saving submission file...")
 
     submission_path = submission_dir / 'submission.csv'
     submission.to_csv(submission_path, index=False)
@@ -235,16 +234,16 @@ def generate_submission(
     print("Summary:")
     print(f"   Experiment: {run_id}")
     print(f"   Holdout submission: {len(submission)} rows")
-    print(f"   Predictions: 20 horizons (1-20 days)")
+    print("   Predictions: 20 horizons (1-20 days)")
 
     print(f"\n   Saved to: {submission_dir}/")
 
     print("\nNext steps:")
-    print(f"   # View submission predictions")
+    print("   # View submission predictions")
     print(f"   head {submission_path}")
 
-    print(f"\n   # Submit file to the competition platform")
-    print(f"   # (Upload submission.csv)")
+    print("\n   # Submit file to the competition platform")
+    print("   # (Upload submission.csv)")
 
 
 if __name__ == "__main__":

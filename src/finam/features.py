@@ -12,7 +12,6 @@ Feature Engineering для FORECAST задачи
 
 import numpy as np
 import pandas as pd
-from scipy.stats import zscore
 
 
 def compute_momentum(

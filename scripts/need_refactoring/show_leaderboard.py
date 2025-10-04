@@ -91,7 +91,7 @@ def show_leaderboard(split: str = 'test', top: int = None):
         print(f"  {split}_score_total: {best[score_col]:.6f}")
         print(f"  Improvement vs baseline: {best_improvement:+.1f}%")
         print()
-        print(f"  Details:")
+        print("  Details:")
         print(f"    MAE 1d:  {best[f'{split}_mae_1d']:.6f}")
         print(f"    MAE 20d: {best[f'{split}_mae_20d']:.6f}")
         print(f"    Brier 1d:  {best[f'{split}_brier_1d']:.6f}")
@@ -99,7 +99,7 @@ def show_leaderboard(split: str = 'test', top: int = None):
         print(f"    DA 1d:  {best[f'{split}_da_1d']:.4f} ({best[f'{split}_da_1d']*100:.2f}%)")
         print(f"    DA 20d: {best[f'{split}_da_20d']:.4f} ({best[f'{split}_da_20d']*100:.2f}%)")
         print()
-        print(f"  Generate submission:")
+        print("  Generate submission:")
         print(f"    python scripts/4_generate_submission.py --run-id {best['run_id']}")
 
     print("=" * 80)

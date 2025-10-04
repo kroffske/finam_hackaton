@@ -31,7 +31,6 @@ import pandas as pd
 import numpy as np
 import joblib
 
-from finam.utils import get_feature_columns
 from finam.features_target import extract_targets_dict
 from finam.model import MomentumBaseline, LightGBMModel
 from finam.metrics import evaluate_predictions, print_metrics
@@ -77,8 +76,8 @@ def train_model(
     preprocessed_dir = project_root / 'data' / 'preprocessed'
 
     if not preprocessed_dir.exists():
-        print(f"ERROR Preprocessed data not found!")
-        print(f"   Run first: python scripts/1_prepare_data.py")
+        print("ERROR Preprocessed data not found!")
+        print("   Run first: python scripts/1_prepare_data.py")
         return
 
     train_df = pd.read_csv(preprocessed_dir / 'train.csv', parse_dates=['begin'])
@@ -159,7 +158,7 @@ def train_model(
     # Обучение
     model.fit(X_train, y_returns_train)
 
-    print(f"   OK Training complete!\n")
+    print("   OK Training complete!\n")
 
     # ========================================================================
     # 4. Предсказание и оценка
@@ -212,7 +211,7 @@ def train_model(
         print(f"   OK Saved {len(model.models)} models (model_return_1d.pkl through model_return_20d.pkl)")
     else:
         joblib.dump(model, exp_dir / 'model.pkl')
-        print(f"   OK Saved model.pkl")
+        print("   OK Saved model.pkl")
 
     # 5.2 Сохранение конфигурации
     config = {
@@ -259,7 +258,7 @@ def train_model(
     with open(exp_dir / 'config.yaml', 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-    print(f"   OK Saved config.yaml")
+    print("   OK Saved config.yaml")
 
     # 5.3 Сохранение метрик в JSON
     # Конвертируем numpy types в Python native
@@ -282,13 +281,13 @@ def train_model(
     with open(exp_dir / 'metrics.json', 'w') as f:
         json.dump(metrics_output, f, indent=2)
 
-    print(f"   OK Saved metrics.json")
+    print("   OK Saved metrics.json")
 
     # 5.4 Сохранение feature importance (для LightGBM)
     if model_type.lower() == 'lightgbm':
         importance_df = model.get_feature_importance()
         importance_df.to_csv(exp_dir / 'feature_importance.csv', index=False)
-        print(f"   OK Saved feature_importance.csv")
+        print("   OK Saved feature_importance.csv")
 
     # 5.5 Сохранение предсказаний на val (все 20 горизонтов)
     predictions_df = val_df[['ticker', 'begin']].copy()
@@ -303,7 +302,7 @@ def train_model(
             predictions_df[target_key] = y_returns_val[target_key]
 
     predictions_df.to_csv(exp_dir / 'predictions_val.csv', index=False)
-    print(f"   OK Saved predictions_val.csv")
+    print("   OK Saved predictions_val.csv")
 
     # ========================================================================
     # Summary
@@ -314,18 +313,18 @@ def train_model(
 
     print(f" Experiment: {exp_name}")
     print(f"   Output dir: {exp_dir}")
-    print(f"\n   Validation metrics:")
+    print("\n   Validation metrics:")
     print(f"      MAE 1d:   {val_metrics['mae_1d']:.6f}")
     print(f"      MAE 20d:  {val_metrics['mae_20d']:.6f}")
     print(f"      MAE mean: {val_metrics['mae_mean']:.6f}")
 
-    print(f"\n Next steps:")
-    print(f"   # Evaluate model")
+    print("\n Next steps:")
+    print("   # Evaluate model")
     print(f"   python scripts/3_evaluate.py --exp-dir {exp_dir.name}")
-    print(f"\n   # Generate submission files")
+    print("\n   # Generate submission files")
     print(f"   python scripts/4_generate_submission.py --run-id {exp_dir.name}")
-    print(f"\n   # Collect all experiments")
-    print(f"   python scripts/collect_experiments.py")
+    print("\n   # Collect all experiments")
+    print("   python scripts/collect_experiments.py")
 
 
 if __name__ == "__main__":

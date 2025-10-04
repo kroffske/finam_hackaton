@@ -17,7 +17,6 @@ import sys
 from pathlib import Path
 import argparse
 from datetime import datetime
-import json
 import yaml
 
 # Добавляем src/ в PYTHONPATH
@@ -91,11 +90,11 @@ def evaluate_model(
         model_return_1d = joblib.load(exp_path / 'model_return_1d.pkl')
         model_return_20d = joblib.load(exp_path / 'model_return_20d.pkl')
 
-        print(f"   OK Loaded LightGBM models")
+        print("   OK Loaded LightGBM models")
 
     elif model_type.lower() == 'momentum':
         model = joblib.load(exp_path / 'model.pkl')
-        print(f"   OK Loaded Momentum model")
+        print("   OK Loaded Momentum model")
 
     else:
         print(f"ERROR Unknown model type: {model_type}")
@@ -111,7 +110,7 @@ def evaluate_model(
 
     if not data_file.exists():
         print(f"ERROR Data file not found: {data_file}")
-        print(f"   Run first: python scripts/1_prepare_data.py")
+        print("   Run first: python scripts/1_prepare_data.py")
         return
 
     df = pd.read_csv(data_file, parse_dates=['begin'])
@@ -182,10 +181,10 @@ def evaluate_model(
 
             f.write("METRICS:\n")
             f.write("-" * 80 + "\n")
-            f.write(f"1-DAY:\n")
+            f.write("1-DAY:\n")
             f.write(f"  MAE:   {metrics['mae_1d']:.6f}\n\n")
 
-            f.write(f"20-DAY:\n")
+            f.write("20-DAY:\n")
             f.write(f"  MAE:   {metrics['mae_20d']:.6f}\n\n")
 
             f.write(f"MEAN MAE: {metrics['mae_mean']:.6f}\n")
