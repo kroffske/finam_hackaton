@@ -16,7 +16,8 @@ dependencies = [
     "joblib>=1.3",
     "pyyaml>=6.0",
     "nltk>=3.9",
-    "openai>=2.1"
+    "openai>=2.1",
+    "python-dotenv>=2.1"
 ]
 
 [project.scripts]

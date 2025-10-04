@@ -29,6 +29,7 @@ Configuration:
 from __future__ import annotations
 
 import argparse
+import ast
 import logging
 import os
 import sys
@@ -59,8 +60,9 @@ from finam.llm_sentiment import (  # noqa: E402
 # ============================================
 
 # Model settings
-MODEL = "openai/gpt-4o-mini"  # Fast and cost-effective
-MAX_TOKENS = 300  # Sufficient for JSON responses
+MODEL = "google/gemini-2.5-flash-lite"  # Fast and cost-effective
+PROMPT_VERSION = "v2"  # Use enhanced prompt with impact scope
+MAX_TOKENS = 1000  # Sufficient for JSON responses
 TEMPERATURE = 0.3  # Deterministic outputs
 
 # Batch and concurrency settings
@@ -89,7 +91,76 @@ MODEL_PRICES = {
     "deepseek/deepseek-r1-distill-llama-70b": {"input": 0.03, "output": 0.13},
     "qwen/qwen-2.5-72b-instruct": {"input": 0.35, "output": 0.40},
     "mistralai/mistral-small": {"input": 0.04, "output": 0.40},
+    "google/gemini-2.5-flash-lite": {"input": 0.037, "output": 0.150},
 }
+
+IMPACT_SCOPE_DEFAULTS = {
+    "market_wide": "market",
+    "market_wide_company": "market_and_company",
+    "company_specific": "company",
+}
+
+
+def parse_ticker_list(raw: object) -> list[str]:
+    """Convert serialized tickers value to a clean list of tickers."""
+
+    if isinstance(raw, list):
+        items = raw
+    elif raw is None or (isinstance(raw, float) and pd.isna(raw)):
+        items = []
+    elif isinstance(raw, str):
+        value = raw.strip()
+        if not value:
+            items = []
+        else:
+            try:
+                parsed = ast.literal_eval(value)
+                if isinstance(parsed, list):
+                    items = parsed
+                else:
+                    items = [str(parsed)]
+            except (SyntaxError, ValueError):
+                items = [tok.strip() for tok in value.split(",") if tok.strip()]
+    else:
+        items = [str(raw)]
+
+    clean = []
+    for item in items:
+        if item is None:
+            continue
+        token = str(item).strip()
+        if token:
+            clean.append(token)
+    return clean
+
+
+def infer_news_type(tickers: list[str]) -> str:
+    """Derive news_type from list of tickers."""
+
+    unique = [t for t in tickers if t]
+    if not unique or set(unique) == {"MARKET"}:
+        return "market_wide"
+    dedup = set(unique)
+    if len(dedup) == 1:
+        return "company_specific"
+    return "market_wide_company"
+
+
+def choose_primary_ticker(tickers: list[str], news_type: str) -> str:
+    """Pick primary ticker for prompt context."""
+
+    if news_type == "market_wide":
+        return "MARKET"
+    for ticker in tickers:
+        if ticker and ticker != "MARKET":
+            return ticker
+    return tickers[0] if tickers else "MARKET"
+
+
+def fallback_impact_scope(news_type: str) -> str:
+    """Return default impact scope derived from news_type."""
+
+    return IMPACT_SCOPE_DEFAULTS.get(news_type, "company")
 
 
 def calculate_cost(
@@ -157,6 +228,7 @@ def batch_worker(
         max_tokens=settings["max_tokens"],
         temperature=settings["temperature"],
         text_chars=settings["text_chars"],
+        prompt_version=settings["prompt_version"],
     )
     return result
 
@@ -193,6 +265,7 @@ def process_file(
     logger.info("Starting LLM sentiment analysis")
     logger.info(f"Input file: {input_path}")
     logger.info(f"Model: {MODEL}")
+    logger.info(f"Prompt version: {PROMPT_VERSION}")
     logger.info(
         f"Structured outputs: {'enabled' if use_structured else 'disabled (fallback to text parsing)'}"
     )
@@ -201,6 +274,32 @@ def process_file(
     news_df = pd.read_csv(input_path)
     news_df["publish_date"] = pd.to_datetime(news_df["publish_date"])
     original_count = len(news_df)
+
+    if "tickers" not in news_df.columns:
+        print("❌ Column 'tickers' not found in input file — cannot proceed")
+        logger.error("Input file missing 'tickers' column, aborting")
+        return
+
+    # Normalize tickers representation and derive news_type / primary_ticker
+    news_df["tickers"] = news_df["tickers"].apply(parse_ticker_list)
+
+    if "news_type" in news_df.columns:
+        existing_types = news_df["news_type"].fillna("").astype(str)
+    else:
+        existing_types = pd.Series([""] * len(news_df), index=news_df.index)
+
+    derived_types = []
+    for tickers, current_type in zip(news_df["tickers"], existing_types):
+        if current_type in IMPACT_SCOPE_DEFAULTS:
+            derived_types.append(current_type)
+        else:
+            derived_types.append(infer_news_type(tickers))
+    news_df["news_type"] = derived_types
+
+    news_df["primary_ticker"] = [
+        choose_primary_ticker(tickers, ntype)
+        for tickers, ntype in zip(news_df["tickers"], news_df["news_type"])
+    ]
 
     logger.info(f"Loaded {original_count} news items")
 
@@ -227,6 +326,7 @@ def process_file(
         return
 
     print(f"Model: {MODEL}")
+    print(f"Prompt version: {PROMPT_VERSION}")
     if use_structured:
         print("✓ Structured outputs: ENABLED (JSON Schema validation)")
     else:
@@ -250,6 +350,8 @@ def process_file(
         news_df["sentiment"] = None
     if "confidence" not in news_df.columns:
         news_df["confidence"] = None
+    if "impact_scope" not in news_df.columns:
+        news_df["impact_scope"] = None
 
     # Generate hash for deduplication
     # Hash = MD5 of (tickers + title + publication[:TEXT_CHARS])
@@ -276,18 +378,28 @@ def process_file(
     if output_file.exists():
         print(f"📂 Found existing output: {output_file.name}")
         prev_df = pd.read_csv(output_file)
-        if "_hash" in prev_df.columns and "sentiment" in prev_df.columns:
-            prev_map = {
-                h: (s, c)
-                for h, s, c in zip(
-                    prev_df["_hash"], prev_df["sentiment"], prev_df["confidence"]
-                )
-            }
+        restore_cols = [
+            col for col in ("sentiment", "confidence", "impact_scope") if col in prev_df.columns
+        ]
+        if "_hash" in prev_df.columns and restore_cols:
+            prev_map: dict[str, dict[str, object]] = {}
+            for row in prev_df.itertuples(index=False):
+                row_hash = getattr(row, "_hash", None)
+                if not isinstance(row_hash, str):
+                    continue
+                prev_map[row_hash] = {
+                    col: getattr(row, col, None)
+                    for col in restore_cols
+                }
+
             for i, h in enumerate(news_df["_hash"]):
-                if h in prev_map and pd.notna(prev_map[h][0]):
-                    news_df.at[i, "sentiment"], news_df.at[i, "confidence"] = prev_map[
-                        h
-                    ]
+                if h not in prev_map:
+                    continue
+                cached = prev_map[h]
+                if pd.notna(cached.get("sentiment")):
+                    for col in restore_cols:
+                        news_df.at[i, col] = cached.get(col)
+
             completed = news_df["sentiment"].notna().sum()
             print(f"   Resuming from {completed:,} completed items\n")
 
@@ -312,6 +424,7 @@ def process_file(
         "max_tokens": MAX_TOKENS,
         "temperature": TEMPERATURE,
         "text_chars": TEXT_CHARS,
+        "prompt_version": PROMPT_VERSION,
     }
 
     # Tracking
@@ -324,7 +437,16 @@ def process_file(
     with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
         futures = {}
         for bnum, idxs in enumerate(batches, 1):
-            batch_df = news_df.loc[idxs, ["tickers", "title", "publication"]].copy()
+            batch_df = news_df.loc[
+                idxs,
+                [
+                    "tickers",
+                    "title",
+                    "publication",
+                    "news_type",
+                    "primary_ticker",
+                ],
+            ].copy()
             fut = executor.submit(batch_worker, batch_df, settings)
             futures[fut] = (bnum, idxs)
 
@@ -338,12 +460,27 @@ def process_file(
 
                 # Update dataframe
                 for local_i, global_i in enumerate(idxs):
-                    news_df.at[global_i, "sentiment"] = sentiments[local_i].get(
-                        "sentiment"
-                    )
-                    news_df.at[global_i, "confidence"] = sentiments[local_i].get(
-                        "confidence"
-                    )
+                    response_item = sentiments[local_i] or {}
+
+                    sentiment = response_item.get("sentiment")
+                    confidence = response_item.get("confidence")
+                    impact_scope = response_item.get("impact_scope")
+                    news_type_llm = response_item.get("news_type")
+
+                    news_df.at[global_i, "sentiment"] = sentiment
+                    news_df.at[global_i, "confidence"] = confidence
+
+                    if impact_scope is None:
+                        impact_scope = fallback_impact_scope(
+                            news_df.at[global_i, "news_type"]
+                        )
+                    news_df.at[global_i, "impact_scope"] = impact_scope
+
+                    if (
+                        news_type_llm in IMPACT_SCOPE_DEFAULTS
+                        and news_type_llm != news_df.at[global_i, "news_type"]
+                    ):
+                        news_df.at[global_i, "news_type"] = news_type_llm
 
                 # Track tokens
                 if usage:
@@ -437,14 +574,21 @@ def process_file(
         avg_conf = valid["confidence"].mean()
         print(f"\n📊 Average confidence: {avg_conf:.2f}/10")
 
+        if "impact_scope" in valid.columns:
+            print("\n🌐 Impact scope distribution:")
+            for scope, count in valid["impact_scope"].value_counts().items():
+                pct = count / len(valid) * 100
+                print(f"   {scope:18s}: {count:5d} ({pct:5.1f}%)")
+
         # Examples
         print("\n📰 Sample results:")
         for idx, row in valid.head(3).iterrows():
             sent_label = {1: "📈 POS", -1: "📉 NEG", 0: "➖ NEU"}.get(
                 row["sentiment"], "❓"
             )
+            scope_label = row.get("impact_scope", "?")
             print(
-                f"\n   {sent_label} (conf: {row['confidence']}/10) | {row['tickers']}"
+                f"\n   {sent_label} (conf: {row['confidence']}/10, scope: {scope_label}) | {row['tickers']}"
             )
             print(f"   {row['title'][:70]}...")
 
@@ -471,7 +615,7 @@ def main() -> None:
     parser.add_argument(
         "--start-date",
         type=str,
-        default="2025-01-01",
+        default=None, #"2025-01-01",
         help="Start date filter (YYYY-MM-DD) or None for all dates",
     )
     parser.add_argument(

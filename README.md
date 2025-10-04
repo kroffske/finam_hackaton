@@ -2,6 +2,14 @@
 
 ## 🚀 Быстрый старт
 
+# Данные
+
+Заменяем в `data/raw/participants` - данные с такими же названиями (!) 
+
+data/raw/participants/candles_2.csv - данные на которых предсказываем 
+data/raw/participants/news_2.csv
+
+
 ```bash
 # 1. Создаем и активируем виртуальную среду
 python3 -m venv .venv
@@ -12,17 +20,54 @@ python -m pip install --upgrade pip
 python -m pip install poetry
 poetry install --no-root           # или poetry install
 
+# ключ запуска к openrouter должен лежать в .env OPENROUTER_API_KEY='sk-or-v....'
+
 # 3. Запускаем полный train-пайплайн
-poetry run python train.py --exp-name my_experiment --model-type lightgbm --start-date 2025-01-01 --skip-llm
-poetry run python train.py --exp-name my_experiment --model-type lightgbm --start-date 2025-01-01 --force-llm
+# если нужно сходить в LLM 
+poetry run python train.py --exp-name production --model-type lightgbm --start-date 2024-01-01 --force-llm --train-ratio 0.86 --val-ratio 0.07 
+
+# запуск, если мы уже ХОДИЛИ в LLM (скипает если файл news_2_with_tickers_llm.csv - создан)
+# poetry run python train.py --exp-name final_24 --model-type lightgbm --skip-llm --start-date 2024-01-01 --skip-llm  --train-ratio 0.86 --val-ratio 0.07
 
 # 4. Генерируем сабмишн (последняя модель хранится в outputs/latest)
 poetry run python inference.py --run-id latest 
-
+-- full (можно добавить ключ - будет для всех дней )
 
 # Опционально: если есть OPENROUTER ключ для LLM
 export OPENROUTER_API_KEY="sk-..."
 ```
+
+
+
+
+
+Все что нужно запускать. 
+ниже описание.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 > **Примечание.** Все команды выполняются из корня репозитория. Скрипт `train.py`
 > собирает пайплайн из README (0_1 → 0_2 → … → 2_train → collect), а `inference.py`

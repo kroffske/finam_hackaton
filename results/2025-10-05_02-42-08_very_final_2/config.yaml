@@ -1,0 +1,91 @@
+experiment:
+  name: very_final_2
+  timestamp: 2025-10-05_02-42-08
+  model_type: lightgbm
+  created_at: '2025-10-05T02:42:17.179119'
+model:
+  type: LightGBM
+  n_estimators: 500
+  learning_rate: 0.05
+  max_depth: 6
+  num_leaves: 31
+  min_child_samples: 20
+  subsample: 0.8
+  colsample_bytree: 0.8
+  random_state: 42
+features:
+  count: 50
+  columns:
+  - momentum_5d
+  - momentum_20d
+  - volatility_5d
+  - volatility_20d
+  - gk_volatility
+  - ma_5d
+  - distance_from_ma_5d
+  - ma_20d
+  - distance_from_ma_20d
+  - rsi_14d
+  - macd
+  - macd_signal
+  - macd_diff
+  - bb_position_20d
+  - log_volume
+  - volume_ratio_5d
+  - volume_ratio_20d
+  - momentum_vol_5d
+  - momentum_vol_20d
+  - volume_momentum_5d
+  - llm_sentiment_mean_7d
+  - llm_confidence_mean_7d
+  - llm_positive_count_14d
+  - llm_negative_count_14d
+  - llm_neutral_count_14d
+  - llm_confidence_mean_14d
+  - llm_positive_count_30d
+  - llm_negative_count_30d
+  - llm_neutral_count_30d
+  - llm_sentiment_mean_30d
+  - llm_confidence_mean_30d
+  - llm_sentiment_weighted_30d
+  - llm_positive_count_60d
+  - llm_negative_count_60d
+  - llm_neutral_count_60d
+  - llm_sentiment_mean_60d
+  - llm_confidence_mean_60d
+  - llm_sentiment_weighted_60d
+  - momentum_5d_zscore
+  - momentum_20d_zscore
+  - volatility_5d_zscore
+  - volatility_20d_rank
+  - volatility_20d_zscore
+  - distance_from_ma_5d_zscore
+  - distance_from_ma_20d_zscore
+  - rsi_14d_zscore
+  - macd_diff_rank
+  - macd_diff_zscore
+  - volume_ratio_5d_zscore
+  - volume_ratio_20d_zscore
+  windows:
+  - 5
+  - 20
+  cross_sectional: true
+  interactions: true
+data:
+  train_size: 2611
+  val_size: 0
+  train_period: 2025-01-03 to 2025-06-17
+  val_period: N/A
+results:
+  train:
+    mae_1d: 0.009273113755604611
+    mae_20d: 0.01808533868814574
+    mae_mean: 0.016817301559833873
+  val:
+    mae_1d: .nan
+    mae_20d: .nan
+    mae_mean: .nan
+  test:
+    mae_1d: .nan
+    mae_20d: .nan
+    mae_mean: .nan

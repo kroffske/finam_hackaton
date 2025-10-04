@@ -113,6 +113,18 @@ def main() -> None:
         help="Earliest candle date to keep when preparing data",
     )
     parser.add_argument(
+        "--train-ratio",
+        type=float,
+        default=0.7,
+        help="Train split ratio for scripts/1_prepare_data.py (default: 0.7)",
+    )
+    parser.add_argument(
+        "--val-ratio",
+        type=float,
+        default=0.15,
+        help="Validation split ratio for scripts/1_prepare_data.py (default: 0.15)",
+    )
+    parser.add_argument(
         "--skip-llm", action="store_true", help="Skip the LLM sentiment stage"
     )
     parser.add_argument(
@@ -174,7 +186,14 @@ def main() -> None:
     )
 
     # Stage 1 – prepare structured data
-    prep_cmd = [PYTHON_EXECUTABLE, "scripts/1_prepare_data.py"]
+    prep_cmd = [
+        PYTHON_EXECUTABLE,
+        "scripts/1_prepare_data.py",
+        "--train-ratio",
+        str(args.train_ratio),
+        "--val-ratio",
+        str(args.val_ratio),
+    ]
     if args.start_date:
         prep_cmd.extend(["--start-date", args.start_date])
     run_command(prep_cmd, "1 prepare data", dry)

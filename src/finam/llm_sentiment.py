@@ -36,8 +36,8 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 
-# System prompt for sentiment analysis
-SYSTEM_PROMPT = (
+# Prompt versions (keep legacy version for reproducibility)
+SYSTEM_PROMPT_V1 = (
     "Ты финансовый аналитик. Для каждой строки верни sentiment ∈{-1,0,1} и confidence ∈[0..10]. "
     "Критерии:\n"
     "-1: негатив (падение, санкции, убытки, иски, негативные прогнозы)\n"
@@ -46,12 +46,44 @@ SYSTEM_PROMPT = (
     "Выводи СТРОГО JSON-массив объектов: [{\"index\": i, \"sentiment\": s, \"confidence\": c}, ...]."
 )
 
-# Shortened prompt for structured outputs (schema enforces format)
-SYSTEM_PROMPT_STRUCTURED = (
+SYSTEM_PROMPT_STRUCTURED_V1 = (
     "Ты финансовый аналитик. Для каждой новости определи:\n"
     "sentiment: -1 (негатив: падение, санкции, убытки), 0 (нейтрально), 1 (позитив: рост, контракты, дивиденды)\n"
     "confidence: 0-10 (сила влияния на акции)"
 )
+
+SYSTEM_PROMPT_V2 = (
+    "Ты - Финансовый аналитик. Анализируй влияние новостей на акции с учётом типа новости.\n"
+    "Для каждой новости верни СТРОГО JSON с полями:\n"
+    "- index: локальный индекс новости в батче\n"
+    "- sentiment: -1 (негатив: убытки, санкции, иски), 0 (нейтрально), 1 (позитив: рост прибыли, контракты, дивиденды)\n"
+    "- confidence: 0-10 (0-3 слабое, 4-6 умеренное, 7-10 сильное влияние)\n"
+    "- impact_scope: 'market', 'company' или 'market_and_company' — область влияния\n"
+    "Используй news_type:\n"
+    "- market_wide: оцени макроэффект, impact_scope='market', применяй к тикеру MARKET\n"
+    "- market_wide_company: сначала макро эффект, затем влияние на компанию — impact_scope='market_and_company'\n"
+    "- company_specific: оцени микроэффект для компании, impact_scope='company'\n"
+    "Пример вывода: [{\"index\": 0, \"sentiment\": -1, \"confidence\": 8, \"impact_scope\": \"market\"}]."
+)
+
+SYSTEM_PROMPT_STRUCTURED_V2 = (
+    "Ты - Финансовый аналитик. news_type подсказывает, куда направить эффект:\n"
+    "market_wide → макро (MARKET), company_specific → компания, market_wide_company → обе стороны.\n"
+    "Верни sentiment ∈{-1,0,1}, confidence 0-10 и impact_scope ∈{'market','company','market_and_company'}."
+)
+
+PROMPTS = {
+    "v1": {
+        "plain": SYSTEM_PROMPT_V1,
+        "structured": SYSTEM_PROMPT_STRUCTURED_V1,
+    },
+    "v2": {
+        "plain": SYSTEM_PROMPT_V2,
+        "structured": SYSTEM_PROMPT_STRUCTURED_V2,
+    },
+}
+
+DEFAULT_PROMPT_VERSION = "v2"
 
 # JSON Schema for structured outputs
 SENTIMENT_SCHEMA = {
@@ -82,9 +114,32 @@ SENTIMENT_SCHEMA = {
                                 "minimum": 0,
                                 "maximum": 10,
                                 "description": "Confidence level from 0 (weak) to 10 (strong)"
+                            },
+                            "impact_scope": {
+                                "type": "string",
+                                "enum": [
+                                    "market",
+                                    "company",
+                                    "market_and_company"
+                                ],
+                                "description": "Scope of impact based on news_type"
+                            },
+                            "news_type": {
+                                "type": "string",
+                                "enum": [
+                                    "market_wide",
+                                    "market_wide_company",
+                                    "company_specific"
+                                ],
+                                "description": "Echoed news_type for transparency"
                             }
                         },
-                        "required": ["index", "sentiment", "confidence"],
+                        "required": [
+                            "index",
+                            "sentiment",
+                            "confidence",
+                            "impact_scope"
+                        ],
                         "additionalProperties": False
                     }
                 }
@@ -123,6 +178,16 @@ def supports_structured_outputs(model: str) -> bool:
         False
     """
     return model in MODELS_WITH_STRUCTURED_OUTPUTS
+
+
+def select_system_prompt(version: str, *, structured: bool) -> str:
+    """Return system prompt text for requested version.
+
+    Falls back to DEFAULT_PROMPT_VERSION if version not defined.
+    """
+    prompts = PROMPTS.get(version) or PROMPTS[DEFAULT_PROMPT_VERSION]
+    key = "structured" if structured else "plain"
+    return prompts[key]
 
 
 class AdaptiveLimiter:
@@ -219,13 +284,18 @@ def parse_retry_after(exc: Exception, fallback_seconds: float) -> float:
     return fallback_seconds
 
 
-def compact_prompt(batch_df: pd.DataFrame, text_chars: int = 220, structured: bool = False) -> str:
+def compact_prompt(
+    batch_df: pd.DataFrame,
+    text_chars: int = 220,
+    structured: bool = False,
+) -> str:
     """Generate compact prompt for news batch.
 
     Uses CSV-like format without markdown to minimize tokens.
 
     Args:
-        batch_df: DataFrame with columns ['tickers', 'title', 'publication']
+        batch_df: DataFrame with columns
+            ['tickers', 'title', 'publication', 'news_type', 'primary_ticker']
         text_chars: Maximum characters to include from publication text
         structured: If True, omit JSON format instructions (schema handles it)
 
@@ -234,25 +304,40 @@ def compact_prompt(batch_df: pd.DataFrame, text_chars: int = 220, structured: bo
 
     Example:
         >>> prompt = compact_prompt(batch_df)
-        >>> print(prompt[:100])
-        Проанализируй новости. Формат входа: index|ticker|title|text...
+        >>> print(prompt.splitlines()[0])
+        Проанализируй новости. Формат входа: index|news_type|primary_ticker|tickers|title|text (≤220 символов текста)
     """
+    header = (
+        "index|news_type|primary_ticker|tickers|title|text"
+        if structured
+        else "index|news_type|primary_ticker|tickers|title|text (≤{chars} символов текста)"
+    )
     if structured:
-        lines = ["Проанализируй новости (index|ticker|title|text):"]
+        lines = [f"Проанализируй новости ({header}):"]
     else:
         lines = [
-            "Проанализируй новости. Формат входа: index|ticker|title|text (≤220 символов)."
+            "Проанализируй новости. Формат входа: "
+            + header.format(chars=text_chars)
         ]
 
     for local_idx, row in enumerate(batch_df.itertuples(index=False)):
-        tkr = str(getattr(row, "tickers", "") or "")[:30].replace("\n", " ")
+        tickers_value = getattr(row, "tickers", "")
+        if isinstance(tickers_value, list):
+            tkr = ",".join(str(t).strip() for t in tickers_value if t)
+        else:
+            tkr = str(tickers_value or "").strip()
+        tkr = tkr.replace("\n", " ")[:60]
+
+        news_type = str(getattr(row, "news_type", "") or "").strip()
+        primary = str(getattr(row, "primary_ticker", "") or "").strip()
+
         title = str(getattr(row, "title", "") or "").replace("\n", " ").strip()
         text = (
             str(getattr(row, "publication", "") or "")
             .replace("\n", " ")
             .strip()[:text_chars]
         )
-        lines.append(f"{local_idx}|{tkr}|{title}|{text}")
+        lines.append(f"{local_idx}|{news_type}|{primary}|{tkr}|{title}|{text}")
 
     if not structured:
         lines.append(f"Верни ТОЛЬКО JSON массив для index 0..{len(batch_df)-1}.")
@@ -272,12 +357,12 @@ def parse_json_array(text: str, expected_len: int, structured: bool = False) -> 
         List of dicts with 'index', 'sentiment', 'confidence' keys
 
     Example:
-        >>> result = parse_json_array('```json\\n[{"index": 0, "sentiment": 1}]\\n```', 1)
-        >>> print(result[0]['sentiment'])
-        1
-        >>> result = parse_json_array('{"results": [{"index": 0, "sentiment": 1, "confidence": 7}]}', 1, structured=True)
-        >>> print(result[0]['sentiment'])
-        1
+        >>> result = parse_json_array('''[{"index": 0, "sentiment": 1, "confidence": 7, "impact_scope": "company"}]''', 1)
+        >>> result[0]['impact_scope']
+        'company'
+        >>> result = parse_json_array('{"results": [{"index": 0, "sentiment": 1, "confidence": 7, "impact_scope": "market"}]}', 1, structured=True)
+        >>> result[0]['impact_scope']
+        'market'
     """
     original_text = text
 
@@ -313,22 +398,23 @@ def parse_json_array(text: str, expected_len: int, structured: bool = False) -> 
         logger.error(f"Extracted text: {text[:200] if not structured else 'N/A'}")
         raise
 
-    # Ensure correct length
-    if len(data) != expected_len:
-        out = []
-        for i in range(expected_len):
-            if i < len(data) and isinstance(data[i], dict):
-                out.append(
-                    {
-                        "index": i,
-                        "sentiment": data[i].get("sentiment"),
-                        "confidence": data[i].get("confidence"),
-                    }
-                )
-            else:
-                out.append({"index": i, "sentiment": None, "confidence": None})
-        return out
-    return data
+    # Normalize items and ensure required keys are present
+    normalized = []
+    for i in range(expected_len):
+        if i < len(data) and isinstance(data[i], dict):
+            item = data[i]
+        else:
+            item = {}
+        normalized.append(
+            {
+                "index": item.get("index", i),
+                "sentiment": item.get("sentiment"),
+                "confidence": item.get("confidence"),
+                "impact_scope": item.get("impact_scope"),
+                "news_type": item.get("news_type"),
+            }
+        )
+    return normalized
 
 
 def call_llm_with_retry(
@@ -446,31 +532,33 @@ def analyze_news_batch(
     batch_df: pd.DataFrame,
     *,
     api_key: str | None = None,
-    model: str = "openai/gpt-4o-mini",
+    model: str = "google/gemini-2.5-flash-lite",
     max_tokens: int = 1000,
     temperature: float = 0,
     text_chars: int = 220,
     force_structured: bool | None = None,
+    prompt_version: str | None = None,
 ) -> dict[str, Any]:
     """Analyze sentiment for a batch of news articles.
 
     Args:
-        batch_df: DataFrame with columns ['tickers', 'title', 'publication']
+        batch_df: DataFrame with columns ['tickers', 'title', 'publication', 'news_type', 'primary_ticker']
         api_key: OpenRouter API key (defaults to OPENROUTER_API_KEY env var)
         model: Model identifier
         max_tokens: Maximum response tokens
         temperature: Sampling temperature
         text_chars: Max chars from publication text
         force_structured: Force structured outputs on/off (None=auto-detect)
+        prompt_version: Which system prompt version to use ("v1", "v2"). None → default
 
     Returns:
-        dict with 'sentiments' (list of dicts) and 'usage' (token stats)
+        dict with 'sentiments' (list of dicts with sentiment/confidence/impact_scope) and 'usage' (token stats)
 
     Example:
-        >>> batch = news_df.iloc[:80]
-        >>> result = analyze_news_batch(batch, model="openai/gpt-4o-mini")
-        >>> print(result['sentiments'][0])
-        {'index': 0, 'sentiment': 1, 'confidence': 7}
+        >>> batch = news_df.iloc[:20]
+        >>> result = analyze_news_batch(batch, model="google/gemini-2.5-flash-lite")
+        >>> result['sentiments'][0]['impact_scope']
+        'company'
     """
     if api_key is None:
         api_key = os.getenv("OPENROUTER_API_KEY", "")
@@ -489,9 +577,15 @@ def analyze_news_batch(
         else supports_structured_outputs(model)
     )
 
+    prompt_version = prompt_version or DEFAULT_PROMPT_VERSION
+
     # Select appropriate prompt and generate user message
-    system_prompt = SYSTEM_PROMPT_STRUCTURED if use_structured else SYSTEM_PROMPT
-    user_prompt = compact_prompt(batch_df, text_chars=text_chars, structured=use_structured)
+    system_prompt = select_system_prompt(prompt_version, structured=use_structured)
+    user_prompt = compact_prompt(
+        batch_df,
+        text_chars=text_chars,
+        structured=use_structured,
+    )
 
     payload = {
         "model": model,
@@ -505,7 +599,7 @@ def analyze_news_batch(
 
     logger.info(
         f"Processing batch of {len(batch_df)} items "
-        f"(structured={'yes' if use_structured else 'no'})"
+        f"(structured={'yes' if use_structured else 'no'}, prompt={prompt_version})"
     )
 
     result = call_llm_with_retry(client, payload, use_structured_outputs=use_structured)

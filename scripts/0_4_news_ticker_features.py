@@ -3,9 +3,10 @@
 Этот скрипт:
 1. Загружает *_ticker_sentiment.csv (уже exploded по тикерам)
 2. Агрегирует на уровне (date, ticker):
-   - news_count_1d, news_count_7d, news_count_30d
-   - sentiment_mean, sentiment_weighted, confidence_mean
-   - positive_count, negative_count, neutral_count
+   - llm_news_count_1d + дополнительные окна (3/7/14/30/60)
+   - llm_sentiment_mean, llm_sentiment_weighted, llm_confidence_mean
+   - llm_positive_count, llm_negative_count, llm_neutral_count
+   - llm_news_type_count__*, llm_impact_scope_count__*, и доли по категориям
    - rolling features для всех метрик
 3. Сохраняет *_ticker_features.csv
 
@@ -28,9 +29,9 @@ import argparse
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / 'src'))
 
-import pandas as pd
+import pandas as pd  # noqa: E402
 
-from finam.features_news_tickers import aggregate_ticker_news_features
+from finam.features_news_tickers import aggregate_ticker_news_features  # noqa: E402
 
 
 def process_ticker_sentiment_file(
@@ -85,7 +86,7 @@ def process_ticker_sentiment_file(
 
     ticker_features = aggregate_ticker_news_features(
         ticker_sentiment_df,
-        rolling_windows=[7, 30],
+        rolling_windows=[3, 7, 14, 30, 60],
         include_llm_features=has_llm
     )
 

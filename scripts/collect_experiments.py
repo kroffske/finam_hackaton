@@ -302,6 +302,9 @@ def main(output_path: str = None, split: str = 'val', analyze_features: bool = F
         print("   # Generate submission for best model")
         print(f"   python scripts/4_generate_submission.py --run-id {best_run_id}")
         print()
+        print("   # Generate submission for latest model (latest is symlink)")
+        print(f"   poetry run python inference.py --run-id latest")
+        print()
 
     print("   # View all experiments in Python")
     print("   df = pd.read_csv('outputs/experiments_log.csv')")
