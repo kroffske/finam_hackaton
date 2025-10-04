@@ -25,7 +25,11 @@ sys.path.insert(0, str(project_root / 'src'))
 import pandas as pd
 import numpy as np
 
-from finam.features import add_all_features
+from finam.features import (
+    add_all_features,
+    fit_cross_sectional_stats,
+    transform_cross_sectional_features
+)
 from finam.features_news import add_news_features
 
 
@@ -113,14 +117,16 @@ def prepare_data(
     print()
 
     # ========================================================================
-    # 2. Feature Engineering (train data)
+    # 2. Feature Engineering (базовые фичи БЕЗ cross-sectional)
     # ========================================================================
-    print("[2/5] Feature Engineering (train data)...")
+    print("[2/5] Feature Engineering (базовые фичи)...")
 
+    # Создаём базовые фичи (momentum, volatility, MA, RSI, MACD, volume)
+    # НО БЕЗ cross-sectional (ranks, z-scores), чтобы избежать data leakage
     df = add_all_features(
         df,
         windows=windows,
-        include_cross_sectional=include_cross_sectional,
+        include_cross_sectional=False,  # ⚠️ ВАЖНО: сначала без cross-sectional
         include_interactions=include_interactions
     )
 
@@ -128,17 +134,7 @@ def prepare_data(
     if news_df is not None:
         df = add_news_features(df, news_df, lag_days=1, rolling_windows=[1, 7, 30])
 
-    # Получаем список feature columns (все кроме основных и таргетов)
-    base_cols = ['ticker', 'begin', 'open', 'high', 'low', 'close', 'volume', 'adj_close']
-    target_cols = [col for col in df.columns if col.startswith('target_')]
-    feature_cols = [col for col in df.columns if col not in base_cols and col not in target_cols]
-
-    print(f"   OK Created {len(feature_cols)} features for train data")
-    print(f"\n   Sample features (first 10):")
-    for i, col in enumerate(feature_cols[:10], 1):
-        print(f"      {i}. {col}")
-    if len(feature_cols) > 10:
-        print(f"      ... and {len(feature_cols) - 10} more\n")
+    print(f"   OK Created базовые признаки")
 
     # ========================================================================
     # 3. Train/Val/Test Split (temporal)
@@ -178,32 +174,79 @@ def prepare_data(
     print(f"      val_end:   {val_end_date.date()}\n")
 
     # ========================================================================
+    # 3.5. Cross-Sectional Features (БЕЗ data leakage!)
+    # ========================================================================
+    if include_cross_sectional:
+        print("[3.5/5] Cross-sectional features (без data leakage)...")
+
+        # Шаг 1: Фитим статистики ТОЛЬКО на train
+        print("   * Fitting cross-sectional stats on train data...")
+        cross_sectional_stats = fit_cross_sectional_stats(train_df)
+
+        # Шаг 2: Применяем к train (fit_mode=True)
+        print("   * Transforming train data...")
+        train_df = transform_cross_sectional_features(train_df, fit_mode=True)
+
+        # Шаг 3: Применяем к val/test (используя train статистики)
+        print("   * Transforming val data (using train stats)...")
+        val_df = transform_cross_sectional_features(val_df, stats=cross_sectional_stats)
+
+        print("   * Transforming test data (using train stats)...")
+        test_df = transform_cross_sectional_features(test_df, stats=cross_sectional_stats)
+
+        print("   OK Cross-sectional features добавлены БЕЗ data leakage!\n")
+
+    # Получаем список feature columns (все кроме основных и таргетов)
+    base_cols = ['ticker', 'begin', 'open', 'high', 'low', 'close', 'volume', 'adj_close']
+    target_cols = [col for col in train_df.columns if col.startswith('target_')]
+    feature_cols = [col for col in train_df.columns if col not in base_cols and col not in target_cols]
+
+    print(f"   ИТОГО: {len(feature_cols)} features")
+    print(f"\n   Sample features (first 10):")
+    for i, col in enumerate(feature_cols[:10], 1):
+        print(f"      {i}. {col}")
+    if len(feature_cols) > 10:
+        print(f"      ... and {len(feature_cols) - 10} more\n")
+
+    # ========================================================================
     # 4. Feature Engineering (public/private test data)
     # ========================================================================
     print("[4/5] Feature Engineering (public/private test data)...")
 
     # Обрабатываем public_test
     if public_test_df is not None:
+        # Базовые фичи БЕЗ cross-sectional
         public_test_df = add_all_features(
             public_test_df,
             windows=windows,
-            include_cross_sectional=include_cross_sectional,
+            include_cross_sectional=False,
             include_interactions=include_interactions
         )
         if test_news_df is not None:
             public_test_df = add_news_features(public_test_df, test_news_df, lag_days=1, rolling_windows=[1, 7, 30])
+
+        # Cross-sectional features (используя train статистики)
+        if include_cross_sectional:
+            public_test_df = transform_cross_sectional_features(public_test_df, stats=cross_sectional_stats)
+
         print(f"   OK Processed public_test: {len(public_test_df)} rows, {len(feature_cols)} features")
 
     # Обрабатываем private_test
     if private_test_df is not None:
+        # Базовые фичи БЕЗ cross-sectional
         private_test_df = add_all_features(
             private_test_df,
             windows=windows,
-            include_cross_sectional=include_cross_sectional,
+            include_cross_sectional=False,
             include_interactions=include_interactions
         )
         if test_news_df is not None:
             private_test_df = add_news_features(private_test_df, test_news_df, lag_days=1, rolling_windows=[1, 7, 30])
+
+        # Cross-sectional features (используя train статистики)
+        if include_cross_sectional:
+            private_test_df = transform_cross_sectional_features(private_test_df, stats=cross_sectional_stats)
+
         print(f"   OK Processed private_test: {len(private_test_df)} rows, {len(feature_cols)} features")
 
     print()

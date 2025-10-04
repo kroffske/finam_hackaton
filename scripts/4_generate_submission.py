@@ -30,7 +30,8 @@ import yaml
 def generate_submission(
     run_id: str,
     output_dir: str = None,
-    preprocessed_dir: str = None
+    preprocessed_dir: str = None,
+    latest: bool = False
 ):
     """
     Генерация submission файлов для public и private тестов
@@ -39,6 +40,7 @@ def generate_submission(
         run_id: идентификатор эксперимента (например 2025-10-03_23-41-15_lgbm_with_news)
         output_dir: директория для сохранения submission (по умолчанию outputs/<run_id>/)
         preprocessed_dir: директория с preprocessed данными (по умолчанию data/preprocessed/)
+        latest: если True, генерировать одно предсказание на последнюю дату для каждого тикера
     """
     print("=" * 80)
     print("GENERATE SUBMISSION")
@@ -116,29 +118,16 @@ def generate_submission(
     feature_cols = metadata['feature_columns']
     print(f"   OK Loaded {len(feature_cols)} features from metadata.json")
 
-    # Загружаем public_test
-    public_test_path = preprocessed_dir / 'public_test.parquet'
-    private_test_path = preprocessed_dir / 'private_test.parquet'
+    # Загружаем holdout_test
+    holdout_test_path = preprocessed_dir / 'holdout_test.csv'
 
-    public_test_df = None
-    private_test_df = None
-
-    if public_test_path.exists():
-        public_test_df = pd.read_parquet(public_test_path)
-        print(f"   OK Loaded public_test.parquet: {len(public_test_df)} rows")
-    else:
-        print(f"   WARNING: public_test.parquet not found")
-
-    if private_test_path.exists():
-        private_test_df = pd.read_parquet(private_test_path)
-        print(f"   OK Loaded private_test.parquet: {len(private_test_df)} rows")
-    else:
-        print(f"   WARNING: private_test.parquet not found")
-
-    if public_test_df is None and private_test_df is None:
-        print(f"\n   ERROR: No test data found!")
+    if not holdout_test_path.exists():
+        print(f"\n   ERROR: holdout_test.csv not found!")
         print(f"   Run: python scripts/1_prepare_data.py")
         return
+
+    holdout_test_df = pd.read_csv(holdout_test_path, parse_dates=['begin'])
+    print(f"   OK Loaded holdout_test.csv: {len(holdout_test_df)} rows")
 
     # ========================================================================
     # 4. Генерация предсказаний
@@ -152,99 +141,68 @@ def generate_submission(
         submission_dir = Path(output_dir)
         submission_dir.mkdir(parents=True, exist_ok=True)
 
-    def generate_predictions_for_test(test_df, test_name):
-        """Генерация предсказаний для одного тестового набора"""
-        if test_df is None:
-            return None
+    # Подготовка данных
+    print(f"\n   Processing holdout_test...")
+    X_test = holdout_test_df[feature_cols].fillna(0)
 
-        print(f"\n   Processing {test_name}...")
+    # Проверяем структуру моделей и делаем предсказания
+    if 'model' in models:
+        # Единая модель (Momentum или другая) - использует .predict()
+        model = models['model']
+        preds = model.predict(X_test)
+    else:
+        # Множество моделей LightGBM (model_return_1d.pkl, model_return_2d.pkl, ...)
+        # Собираем предсказания от всех 20 моделей
+        preds = {}
+        for horizon in range(1, 21):
+            model_key = f'model_return_{horizon}d'
+            if model_key in models:
+                pred = models[model_key].predict(X_test)
+                # Clipping пропорционально горизонту
+                max_return = 0.5 + (1.0 - 0.5) * (horizon - 1) / 19
+                pred = np.clip(pred, -max_return, max_return)
+                preds[f'pred_return_{horizon}d'] = pred
 
-        # Подготовка данных
-        X_test = test_df[feature_cols].fillna(0)
+    # Создаем submission DataFrame с 20 предсказаниями
+    submission_data = {
+        'ticker': holdout_test_df['ticker'],
+        'begin': holdout_test_df['begin']
+    }
 
-        # Проверяем какую модель используем
-        if 'model' in models:
-            # Единая модель для всех горизонтов
-            model = models['model']
-            predictions = model.predict(X_test)
-
-        elif 'model_1d' in models and 'model_20d' in models:
-            # Отдельные модели для 1d и 20d
-            model_1d = models['model_1d']
-            model_20d = models['model_20d']
-
-            pred_1d = model_1d.predict(X_test)
-            pred_20d = model_20d.predict(X_test)
-
-            predictions = {
-                'pred_return_1d': pred_1d['pred_return_1d'],
-                'pred_prob_up_1d': pred_1d['pred_prob_up_1d'],
-                'pred_return_20d': pred_20d['pred_return_20d'],
-                'pred_prob_up_20d': pred_20d['pred_prob_up_20d']
-            }
-
-        elif all(k in models for k in ['model_return_1d', 'model_return_20d', 'model_prob_up_1d', 'model_prob_up_20d']):
-            # Четыре отдельные модели (LightGBM с отдельными таргетами)
-            import numpy as np
-
-            # Предсказание доходностей
-            pred_return_1d = models['model_return_1d'].predict(X_test)
-            pred_return_20d = models['model_return_20d'].predict(X_test)
-
-            # Предсказание вероятностей
-            pred_prob_up_1d = models['model_prob_up_1d'].predict(X_test)
-            pred_prob_up_20d = models['model_prob_up_20d'].predict(X_test)
-
-            predictions = {
-                'pred_return_1d': pred_return_1d,
-                'pred_return_20d': pred_return_20d,
-                'pred_prob_up_1d': pred_prob_up_1d,
-                'pred_prob_up_20d': pred_prob_up_20d
-            }
-
+    # Добавляем все 20 предсказаний
+    for horizon in range(1, 21):
+        pred_key = f'pred_return_{horizon}d'
+        if pred_key in preds:
+            submission_data[pred_key] = preds[pred_key]
         else:
-            print(f"   ERROR: Unknown model structure: {list(models.keys())}")
-            return None
+            # Если модели нет, заполняем нулями
+            print(f"      WARNING: {pred_key} not found, filling with zeros")
+            submission_data[pred_key] = np.zeros(len(holdout_test_df))
 
-        # Создаем submission DataFrame
-        submission = pd.DataFrame({
-            'ticker': test_df['ticker'],
-            'begin': test_df['begin'],
-            'pred_return_1d': predictions['pred_return_1d'],
-            'pred_return_20d': predictions['pred_return_20d'],
-            'pred_prob_up_1d': predictions['pred_prob_up_1d'],
-            'pred_prob_up_20d': predictions['pred_prob_up_20d']
-        })
+    submission = pd.DataFrame(submission_data)
 
-        print(f"      Generated {len(submission)} predictions")
-        print(f"      Sample stats:")
-        print(f"         pred_return_1d:  mean={submission['pred_return_1d'].mean():.6f}, std={submission['pred_return_1d'].std():.6f}")
-        print(f"         pred_return_20d: mean={submission['pred_return_20d'].mean():.6f}, std={submission['pred_return_20d'].std():.6f}")
-        print(f"         pred_prob_up_1d: mean={submission['pred_prob_up_1d'].mean():.4f}, std={submission['pred_prob_up_1d'].std():.4f}")
-        print(f"         pred_prob_up_20d: mean={submission['pred_prob_up_20d'].mean():.4f}, std={submission['pred_prob_up_20d'].std():.4f}")
+    # Фильтрация на последнюю дату для каждого тикера, если флаг --latest
+    if latest:
+        print(f"      Filtering to latest date per ticker...")
+        submission = submission.sort_values('begin').groupby('ticker').tail(1).reset_index(drop=True)
+        print(f"      Filtered to {len(submission)} rows (one per ticker)")
 
-        return submission
-
-    # Генерируем предсказания для public и private
-    public_submission = generate_predictions_for_test(public_test_df, 'public_test')
-    private_submission = generate_predictions_for_test(private_test_df, 'private_test')
+    print(f"      Generated {len(submission)} predictions with {len(preds)} horizons")
+    print(f"      Sample stats:")
+    print(f"         pred_return_1d:  mean={submission['pred_return_1d'].mean():.6f}, std={submission['pred_return_1d'].std():.6f}")
+    print(f"         pred_return_10d: mean={submission['pred_return_10d'].mean():.6f}, std={submission['pred_return_10d'].std():.6f}")
+    print(f"         pred_return_20d: mean={submission['pred_return_20d'].mean():.6f}, std={submission['pred_return_20d'].std():.6f}")
 
     # ========================================================================
     # 5. Сохранение submission файлов
     # ========================================================================
-    print(f"\n[5/5] Saving submission files...")
+    print(f"\n[5/5] Saving submission file...")
 
-    if public_submission is not None:
-        public_path = submission_dir / 'submission_public.csv'
-        public_submission.to_csv(public_path, index=False)
-        print(f"   OK Saved: {public_path}")
-        print(f"      Rows: {len(public_submission)}")
-
-    if private_submission is not None:
-        private_path = submission_dir / 'submission_private.csv'
-        private_submission.to_csv(private_path, index=False)
-        print(f"   OK Saved: {private_path}")
-        print(f"      Rows: {len(private_submission)}")
+    submission_path = submission_dir / 'submission.csv'
+    submission.to_csv(submission_path, index=False)
+    print(f"   OK Saved: {submission_path}")
+    print(f"      Rows: {len(submission)}")
+    print(f"      Columns: {len(submission.columns)} (ticker, begin, pred_return_1d through pred_return_20d)")
 
     # ========================================================================
     # Summary
@@ -255,24 +213,17 @@ def generate_submission(
 
     print("Summary:")
     print(f"   Experiment: {run_id}")
-
-    if public_submission is not None:
-        print(f"   Public submission:  {len(public_submission)} rows")
-    if private_submission is not None:
-        print(f"   Private submission: {len(private_submission)} rows")
+    print(f"   Holdout submission: {len(submission)} rows")
+    print(f"   Predictions: 20 horizons (1-20 days)")
 
     print(f"\n   Saved to: {submission_dir}/")
 
     print("\nNext steps:")
-    if public_submission is not None:
-        print(f"   # View public test predictions")
-        print(f"   head {submission_dir / 'submission_public.csv'}")
-    if private_submission is not None:
-        print(f"   # View private test predictions")
-        print(f"   head {submission_dir / 'submission_private.csv'}")
+    print(f"   # View submission predictions")
+    print(f"   head {submission_path}")
 
-    print(f"\n   # Submit files to the competition platform")
-    print(f"   # (Upload submission_public.csv and submission_private.csv)")
+    print(f"\n   # Submit file to the competition platform")
+    print(f"   # (Upload submission.csv)")
 
 
 if __name__ == "__main__":
@@ -283,11 +234,14 @@ if __name__ == "__main__":
                         help='Output directory for submission files (default: outputs/<run_id>/)')
     parser.add_argument('--preprocessed-dir', type=str, default=None,
                         help='Directory with preprocessed data (default: data/preprocessed/)')
+    parser.add_argument('--latest', action='store_true',
+                        help='Generate only one prediction per ticker (last date)')
 
     args = parser.parse_args()
 
     generate_submission(
         run_id=args.run_id,
         output_dir=args.output_dir,
-        preprocessed_dir=args.preprocessed_dir
+        preprocessed_dir=args.preprocessed_dir,
+        latest=args.latest
     )
