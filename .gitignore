@@ -32,7 +32,7 @@ data/raw/
 data/interim/
 data/preprocessed/  # NEW: preprocessed data (can be regenerated)
 !data/raw/.gitkeep
-!data/raw/participants/*
+!data/raw/participants_old/*
 !data/interim/.gitkeep
 
 # CRITICAL: Hide private test keys from participants

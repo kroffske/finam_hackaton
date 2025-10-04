@@ -95,14 +95,14 @@ def main():
 
     preprocessed_dir = project_root / 'data' / 'preprocessed'
 
-    if not (preprocessed_dir / 'train.parquet').exists():
+    if not (preprocessed_dir / 'train.csv').exists():
         print(f"ERROR Preprocessed data not found!")
         print(f"   Run first: python scripts/1_prepare_data.py")
         return
 
-    train_df = pd.read_parquet(preprocessed_dir / 'train.parquet')
-    val_df = pd.read_parquet(preprocessed_dir / 'val.parquet')
-    test_df = pd.read_parquet(preprocessed_dir / 'test.parquet')
+    train_df = pd.read_csv(preprocessed_dir / 'train.csv', parse_dates=['begin'])
+    val_df = pd.read_csv(preprocessed_dir / 'val.csv', parse_dates=['begin'])
+    test_df = pd.read_csv(preprocessed_dir / 'test.csv', parse_dates=['begin'])
 
     # Загружаем metadata для feature columns
     with open(preprocessed_dir / 'metadata.json', 'r') as f:

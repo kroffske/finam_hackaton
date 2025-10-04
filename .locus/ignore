@@ -1,0 +1,75 @@
+# File patterns to exclude from analysis
+# One pattern per line, supports glob patterns
+# Lines starting with # are comments
+
+# Version control
+**/.git/**
+**/.hg/**
+**/.svn/**
+**/.bzr/**
+
+# Python
+**/__pycache__/**
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.Python
+**/*.egg-info/**
+**/dist/**
+**/build/**
+**/.pytest_cache/**
+**/.mypy_cache/**
+**/.ruff_cache/**
+**/.coverage
+**/*.coverage
+**/.hypothesis/**
+
+# Virtual environments
+**/.venv/**
+**/venv/**
+**/.env/**
+**/env/**
+**/ENV/**
+
+# Node
+**/node_modules/**
+**/npm-debug.log
+**/yarn-error.log
+**/yarn-debug.log
+**/.npm/**
+**/.yarn/**
+
+# IDE
+**/.idea/**
+**/.vscode/**
+**/*.swp
+**/*.swo
+**/*~
+**/.DS_Store
+**/Thumbs.db
+
+# Build outputs
+**/out/**
+**/output/**
+**/outputs/**
+**/target/**
+**/bin/**
+**/obj/**
+
+# Logs
+**/logs/**
+**/*.log
+
+# Temporary files
+**/tmp/**
+**/temp/**
+**/.tmp/**
+**/.temp/**
+
+# Config files to exclude
+.locus/**
+.locusignore
+.locusallow
+outputs/**
+notebooks/**
+data/**

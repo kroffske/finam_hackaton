@@ -31,15 +31,15 @@ import pandas as pd
 import numpy as np
 import joblib
 
-from finam.features import get_feature_columns
-from finam.model import MomentumBaseline, LightGBMModel, CalibratedLightGBMModel
+from finam.utils import get_feature_columns
+from finam.features_target import extract_targets_dict
+from finam.model import MomentumBaseline, LightGBMModel
 from finam.metrics import evaluate_predictions, print_metrics
 
 
 def train_model(
     exp_name: str,
     model_type: str = 'lightgbm',
-    calibrate: bool = False,
     n_estimators: int = 500,
     learning_rate: float = 0.05,
     max_depth: int = 6,
@@ -55,7 +55,6 @@ def train_model(
     Args:
         exp_name: название эксперимента
         model_type: тип модели ('lightgbm' или 'momentum')
-        calibrate: применить калибровку для вероятностей (только для LightGBM)
         остальные параметры: для LightGBM
     """
     print("=" * 80)
@@ -82,8 +81,8 @@ def train_model(
         print(f"   Run first: python scripts/1_prepare_data.py")
         return
 
-    train_df = pd.read_parquet(preprocessed_dir / 'train.parquet')
-    val_df = pd.read_parquet(preprocessed_dir / 'val.parquet')
+    train_df = pd.read_csv(preprocessed_dir / 'train.csv', parse_dates=['begin'])
+    val_df = pd.read_csv(preprocessed_dir / 'val.csv', parse_dates=['begin'])
 
     # Загружаем metadata
     with open(preprocessed_dir / 'metadata.json', 'r') as f:
@@ -101,19 +100,14 @@ def train_model(
     feature_cols = data_metadata['feature_columns']
 
     X_train = train_df[feature_cols]
-    y_return_1d_train = train_df['target_return_1d'].values
-    y_return_20d_train = train_df['target_return_20d'].values
-    y_direction_1d_train = train_df['target_direction_1d'].values
-    y_direction_20d_train = train_df['target_direction_20d'].values
+    y_returns_train = extract_targets_dict(train_df, horizons=list(range(1, 21)))
 
     X_val = val_df[feature_cols]
-    y_return_1d_val = val_df['target_return_1d'].values
-    y_return_20d_val = val_df['target_return_20d'].values
-    y_direction_1d_val = val_df['target_direction_1d'].values
-    y_direction_20d_val = val_df['target_direction_20d'].values
+    y_returns_val = extract_targets_dict(val_df, horizons=list(range(1, 21)))
 
     print(f"   OK X_train shape: {X_train.shape}")
-    print(f"   OK X_val shape:   {X_val.shape}\n")
+    print(f"   OK X_val shape:   {X_val.shape}")
+    print(f"   OK Targets: {len(y_returns_train)} horizons (1-20 days)\n")
 
     # ========================================================================
     # 3. Создание и обучение модели
@@ -121,35 +115,20 @@ def train_model(
     print(f"[3/5] Training {model_type.upper()} model...")
 
     if model_type.lower() == 'lightgbm':
-        if calibrate:
-            model = CalibratedLightGBMModel(
-                n_estimators=n_estimators,
-                learning_rate=learning_rate,
-                max_depth=max_depth,
-                num_leaves=num_leaves,
-                min_child_samples=min_child_samples,
-                subsample=subsample,
-                colsample_bytree=colsample_bytree,
-                random_state=random_state,
-                verbose=-1,
-                calibration_method='isotonic',
-                calibration_cv=5
-            )
-        else:
-            model = LightGBMModel(
-                n_estimators=n_estimators,
-                learning_rate=learning_rate,
-                max_depth=max_depth,
-                num_leaves=num_leaves,
-                min_child_samples=min_child_samples,
-                subsample=subsample,
-                colsample_bytree=colsample_bytree,
-                random_state=random_state,
-                verbose=-1
-            )
+        model = LightGBMModel(
+            n_estimators=n_estimators,
+            learning_rate=learning_rate,
+            max_depth=max_depth,
+            num_leaves=num_leaves,
+            min_child_samples=min_child_samples,
+            subsample=subsample,
+            colsample_bytree=colsample_bytree,
+            random_state=random_state,
+            verbose=-1
+        )
 
         model_params = {
-            'type': 'CalibratedLightGBM' if calibrate else 'LightGBM',
+            'type': 'LightGBM',
             'n_estimators': n_estimators,
             'learning_rate': learning_rate,
             'max_depth': max_depth,
@@ -157,43 +136,28 @@ def train_model(
             'min_child_samples': min_child_samples,
             'subsample': subsample,
             'colsample_bytree': colsample_bytree,
-            'random_state': random_state,
-            'calibrate': calibrate
+            'random_state': random_state
         }
-
-        if calibrate:
-            model_params['calibration_method'] = 'isotonic'
-            model_params['calibration_cv'] = 5
 
     elif model_type.lower() == 'momentum':
         model = MomentumBaseline(
             window_size=5,
             scaling_1d=0.3,
-            scaling_20d=1.0,
-            sensitivity_1d=10.0,
-            sensitivity_20d=5.0
+            scaling_20d=1.0
         )
 
         model_params = {
             'type': 'MomentumBaseline',
             'window_size': 5,
             'scaling_1d': 0.3,
-            'scaling_20d': 1.0,
-            'sensitivity_1d': 10.0,
-            'sensitivity_20d': 5.0
+            'scaling_20d': 1.0
         }
 
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
     # Обучение
-    model.fit(
-        X_train,
-        y_return_1d_train,
-        y_return_20d_train,
-        y_direction_1d_train,
-        y_direction_20d_train
-    )
+    model.fit(X_train, y_returns_train)
 
     print(f"   OK Training complete!\n")
 
@@ -203,43 +167,21 @@ def train_model(
     print("[4/5] Evaluating on train, val, and test...")
 
     # Загружаем test данные
-    test_df = pd.read_parquet(preprocessed_dir / 'test.parquet')
+    test_df = pd.read_csv(preprocessed_dir / 'test.csv', parse_dates=['begin'])
     X_test = test_df[feature_cols].fillna(0)
-    y_return_1d_test = test_df['target_return_1d'].values
-    y_return_20d_test = test_df['target_return_20d'].values
+    y_returns_test = extract_targets_dict(test_df, horizons=list(range(1, 21)))
 
     # Предсказания на train
     train_preds = model.predict(X_train)
-    train_metrics = evaluate_predictions(
-        y_return_1d_train,
-        y_return_20d_train,
-        train_preds['pred_return_1d'],
-        train_preds['pred_return_20d'],
-        train_preds['pred_prob_up_1d'],
-        train_preds['pred_prob_up_20d']
-    )
+    train_metrics = evaluate_predictions(y_returns_train, train_preds)
 
     # Предсказания на val
     val_preds = model.predict(X_val)
-    val_metrics = evaluate_predictions(
-        y_return_1d_val,
-        y_return_20d_val,
-        val_preds['pred_return_1d'],
-        val_preds['pred_return_20d'],
-        val_preds['pred_prob_up_1d'],
-        val_preds['pred_prob_up_20d']
-    )
+    val_metrics = evaluate_predictions(y_returns_val, val_preds)
 
     # Предсказания на test
     test_preds = model.predict(X_test)
-    test_metrics = evaluate_predictions(
-        y_return_1d_test,
-        y_return_20d_test,
-        test_preds['pred_return_1d'],
-        test_preds['pred_return_20d'],
-        test_preds['pred_prob_up_1d'],
-        test_preds['pred_prob_up_20d']
-    )
+    test_metrics = evaluate_predictions(y_returns_test, test_preds)
 
     print("\n" + "=" * 70)
     print("TRAIN METRICS:")
@@ -263,13 +205,11 @@ def train_model(
 
     # 5.1 Сохранение моделей
     if model_type.lower() == 'lightgbm':
-        joblib.dump(model.model_return_1d, exp_dir / 'model_return_1d.pkl')
-        joblib.dump(model.model_return_20d, exp_dir / 'model_return_20d.pkl')
-        if model.model_prob_up_1d is not None:
-            joblib.dump(model.model_prob_up_1d, exp_dir / 'model_prob_up_1d.pkl')
-        if model.model_prob_up_20d is not None:
-            joblib.dump(model.model_prob_up_20d, exp_dir / 'model_prob_up_20d.pkl')
-        print(f"   OK Saved model_*.pkl files")
+        # Сохраняем все 20 моделей
+        for horizon in range(1, 21):
+            if horizon in model.models:
+                joblib.dump(model.models[horizon], exp_dir / f'model_return_{horizon}d.pkl')
+        print(f"   OK Saved {len(model.models)} models (model_return_1d.pkl through model_return_20d.pkl)")
     else:
         joblib.dump(model, exp_dir / 'model.pkl')
         print(f"   OK Saved model.pkl")
@@ -300,21 +240,17 @@ def train_model(
             'train': {
                 'mae_1d': float(train_metrics['mae_1d']),
                 'mae_20d': float(train_metrics['mae_20d']),
-                'brier_1d': float(train_metrics['brier_1d']),
-                'brier_20d': float(train_metrics['brier_20d']),
-                'da_1d': float(train_metrics['da_1d']),
-                'da_20d': float(train_metrics['da_20d'])
+                'mae_mean': float(train_metrics['mae_mean'])
             },
             'val': {
                 'mae_1d': float(val_metrics['mae_1d']),
                 'mae_20d': float(val_metrics['mae_20d']),
-                'brier_1d': float(val_metrics['brier_1d']),
-                'brier_20d': float(val_metrics['brier_20d']),
-                'da_1d': float(val_metrics['da_1d']),
-                'da_20d': float(val_metrics['da_20d']),
-                'score_1d': float(val_metrics.get('score_1d', 0)),
-                'score_20d': float(val_metrics.get('score_20d', 0)),
-                'score_total': float(val_metrics.get('score_total', 0))
+                'mae_mean': float(val_metrics['mae_mean'])
+            },
+            'test': {
+                'mae_1d': float(test_metrics['mae_1d']),
+                'mae_20d': float(test_metrics['mae_20d']),
+                'mae_mean': float(test_metrics['mae_mean'])
             }
         }
     }
@@ -354,14 +290,17 @@ def train_model(
         importance_df.to_csv(exp_dir / 'feature_importance.csv', index=False)
         print(f"   OK Saved feature_importance.csv")
 
-    # 5.5 Сохранение предсказаний на val
+    # 5.5 Сохранение предсказаний на val (все 20 горизонтов)
     predictions_df = val_df[['ticker', 'begin']].copy()
-    predictions_df['pred_return_1d'] = val_preds['pred_return_1d']
-    predictions_df['pred_return_20d'] = val_preds['pred_return_20d']
-    predictions_df['pred_prob_up_1d'] = val_preds['pred_prob_up_1d']
-    predictions_df['pred_prob_up_20d'] = val_preds['pred_prob_up_20d']
-    predictions_df['target_return_1d'] = y_return_1d_val
-    predictions_df['target_return_20d'] = y_return_20d_val
+
+    # Добавляем предсказания для всех горизонтов
+    for horizon in range(1, 21):
+        pred_key = f'pred_return_{horizon}d'
+        target_key = f'target_return_{horizon}d'
+        if pred_key in val_preds:
+            predictions_df[pred_key] = val_preds[pred_key]
+        if target_key in y_returns_val:
+            predictions_df[target_key] = y_returns_val[target_key]
 
     predictions_df.to_csv(exp_dir / 'predictions_val.csv', index=False)
     print(f"   OK Saved predictions_val.csv")
@@ -376,14 +315,9 @@ def train_model(
     print(f" Experiment: {exp_name}")
     print(f"   Output dir: {exp_dir}")
     print(f"\n   Validation metrics:")
-    print(f"      MAE 1d:  {val_metrics['mae_1d']:.6f}")
-    print(f"      MAE 20d: {val_metrics['mae_20d']:.6f}")
-    print(f"      Brier 1d:  {val_metrics['brier_1d']:.6f}")
-    print(f"      Brier 20d: {val_metrics['brier_20d']:.6f}")
-    print(f"      DA 1d:  {val_metrics['da_1d']:.4f} ({val_metrics['da_1d']*100:.2f}%)")
-    print(f"      DA 20d: {val_metrics['da_20d']:.4f} ({val_metrics['da_20d']*100:.2f}%)")
-    if 'score_total' in val_metrics:
-        print(f"      Score Total: {val_metrics['score_total']:.6f}")
+    print(f"      MAE 1d:   {val_metrics['mae_1d']:.6f}")
+    print(f"      MAE 20d:  {val_metrics['mae_20d']:.6f}")
+    print(f"      MAE mean: {val_metrics['mae_mean']:.6f}")
 
     print(f"\n Next steps:")
     print(f"   # Evaluate model")
@@ -401,8 +335,6 @@ if __name__ == "__main__":
     parser.add_argument('--model-type', type=str, default='lightgbm',
                         choices=['lightgbm', 'momentum'],
                         help='Model type (default: lightgbm)')
-    parser.add_argument('--calibrate', action='store_true',
-                        help='Apply calibration (only for LightGBM)')
 
     # LightGBM parameters
     parser.add_argument('--n-estimators', type=int, default=500,
@@ -427,7 +359,6 @@ if __name__ == "__main__":
     train_model(
         exp_name=args.exp_name,
         model_type=args.model_type,
-        calibrate=args.calibrate,
         n_estimators=args.n_estimators,
         learning_rate=args.learning_rate,
         max_depth=args.max_depth,
