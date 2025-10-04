@@ -4,11 +4,14 @@
 
 # Данные
 
-Заменяем в `data/raw/participants` - данные с такими же названиями (!) 
+```
+Заменяем исходные данные из `data/raw/participants` на файлы с такими же названиями
 
 data/raw/participants/candles_2.csv - данные на которых предсказываем 
-data/raw/participants/news_2.csv
+data/raw/participants/news_2.csv - данные на которых предсказываем 
 
+submition будет в папке с артефактами outputs/ 
+```
 
 ```bash
 # 1. Создаем и активируем виртуальную среду
@@ -31,6 +34,7 @@ poetry run python train.py --exp-name production --model-type lightgbm --start-d
 
 # 4. Генерируем сабмишн (последняя модель хранится в outputs/latest)
 poetry run python inference.py --run-id latest 
+
 -- full (можно добавить ключ - будет для всех дней )
 
 # Опционально: если есть OPENROUTER ключ для LLM
