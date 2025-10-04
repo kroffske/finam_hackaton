@@ -2,32 +2,30 @@
 
 ## 🎯 Текущий статус
 
-**✅ Готово к использованию!**
-- ✅ Данные подготовлены (train/val/test + public/private)
-- ✅ Baseline метрики вычислены
-- ✅ Первая модель обучена (LightGBM с новостными фичами)
-- ✅ 43 признака (технические индикаторы + новости)
+**✅ Pipeline готов!**
+- ✅ Данные подготовлены (train/val/test splits)
+- ✅ 57 признаков (технические + новостные counts)
+- ✅ Baseline обучен (Momentum)
+- ✅ LightGBM модель обучена
+- ✅ Submission сгенерирован
 
-**📊 Последняя модель:**
-- Название: `lgbm_with_news`
-- Timestamp: `2025-10-04_03-56-20`
-- Test MAE 1d: 0.01725 (vs baseline 0.02073)
-- Test MAE 20d: 0.08780 (vs baseline 0.09607)
+**📊 Лучшая модель:**
+- `lgbm_with_news` (2025-10-04_22-09-17)
+- Val MAE mean: **0.0446** (↓2.7% vs Momentum)
+- Test MAE mean: **0.0566** (↓9.0% vs 0.0622)
 
-**🚀 Следующие шаги:**
+**🔥 Следующий шаг: LLM sentiment analysis**
 
 ```bash
-# Собрать результаты экспериментов
-python scripts/collect_experiments.py
+# 1. Установить OpenRouter API key
+export OPENROUTER_API_KEY='your-key-here'
 
-# Посмотреть leaderboard
-python scripts/show_leaderboard.py
-
-# Сгенерировать submission для последней модели
-python scripts/4_generate_submission.py --run-id 2025-10-04_03-56-20_lgbm_with_news
-
-# Обучить новую модель с другими параметрами
-python scripts/2_train_model.py --exp-name lgbm_tuned --n-estimators 1000 --learning-rate 0.01
+# 2. Запустить LLM pipeline (см. раздел ниже)
+python scripts/0_2_llm_models.py
+python scripts/0_3_llm_explode.py --all
+python scripts/0_4_news_ticker_features.py
+python scripts/1_prepare_data.py
+python scripts/2_train_model.py --exp-name lgbm_with_llm
 ```
 
 ---
@@ -53,17 +51,24 @@ python -m nltk.downloader popular
 finam/
 ├── data/
 │   ├── raw/participants/          # исходные данные
-│   │   ├── train_candles.csv
-│   │   ├── train_news.csv         # NEW: новости для фич
-│   │   ├── test_news.csv
-│   │   ├── public_test_candles.csv
-│   │   └── private_test_candles.csv
+│   │   ├── candles.csv            # train свечи
+│   │   ├── news.csv               # train новости
+│   │   ├── candles_2.csv          # holdout test свечи
+│   │   └── news_2.csv             # holdout test новости
+│   ├── preprocessed_news/         # обработанные новости
+│   │   ├── news_with_tickers.csv         # новости + тикеры
+│   │   ├── news_with_tickers_llm.csv     # + LLM sentiment
+│   │   ├── news_ticker_sentiment.csv     # exploded по тикерам
+│   │   ├── news_ticker_features.csv      # aggregated features
+│   │   ├── news_2_with_tickers.csv       # test новости + тикеры
+│   │   ├── news_2_with_tickers_llm.csv   # test + LLM sentiment
+│   │   ├── news_2_ticker_sentiment.csv   # test exploded
+│   │   └── news_2_ticker_features.csv    # test aggregated
 │   ├── preprocessed/              # обработанные данные (CSV формат)
 │   │   ├── train.csv              # train split с признаками
 │   │   ├── val.csv                # validation split
 │   │   ├── test.csv               # test split
-│   │   ├── public_test.csv        # preprocessed public test
-│   │   ├── private_test.csv       # preprocessed private test
+│   │   ├── holdout_test.csv       # preprocessed holdout test
 │   │   └── metadata.json          # метаинформация
 │   └── baseline_metrics.json      # эталонные метрики Momentum
 │
@@ -79,10 +84,11 @@ finam/
 │       └── submission_private.csv # NEW: submission для private test
 │
 ├── scripts/
-│   ├── 0_news_preprocess.py       # обработка новостей и привязка к тикерам
-│   ├── 0_openrouter_news_classification.py # классификация новостей через LLM
-│   ├── analyze_news_tickers.py    # анализ покрытия новостей по тикерам
-│   ├── 1_prepare_data.py          # подготовка + split + news + public/private
+│   ├── 0_1_news_preprocess.py     # обработка новостей и привязка к тикерам
+│   ├── 0_2_llm_models.py          # LLM sentiment analysis (OpenRouter/gpt-4o-mini)
+│   ├── 0_3_llm_explode.py         # explode новостей по тикерам + news_type
+│   ├── 0_4_news_ticker_features.py # агрегация ticker features (counts + sentiment)
+│   ├── 1_prepare_data.py          # подготовка + split + join news features
 │   ├── 2_train_model.py           # обучение с train/val/test оценкой
 │   ├── 3_evaluate.py              # оценка модели
 │   ├── 4_generate_submission.py   # генерация submission файлов
@@ -93,40 +99,70 @@ finam/
 │
 └── src/finam/
     ├── features.py                # technical indicators
-    ├── features_news.py           # NEW: news features
+    ├── features_news_tickers.py   # news features aggregation (counts + LLM sentiment)
+    ├── news_tickers_v2.py         # ticker assignment logic
+    ├── llm_sentiment.py           # LLM sentiment analysis via OpenRouter
     ├── model.py                   # модели (LightGBM, Momentum) - только regression
     ├── metrics.py                 # метрики (MAE)
     ├── evaluate.py                # сравнение моделей
-    └── cv.py                      # NEW: cross-validation для временных рядов
+    └── cv.py                      # cross-validation для временных рядов
 ```
 
 ## 🚀 Quick Start Commands
 
+### Базовый Pipeline (✅ ВЫПОЛНЕН)
+
 ```bash
-# 1. Подготовить данные (один раз)
-python scripts/1_prepare_data.py
-
-# 2. Вычислить baseline метрики (один раз)
-python scripts/compute_baseline_metrics.py
-
-# 3. Обучить baseline модель для сравнения
-python scripts/train_baseline.py --exp-name momentum_baseline
-
-# 4. Обучить LightGBM модель
+# Базовый pipeline - простые новостные counts без LLM
+python scripts/0_1_news_preprocess.py           # тикеры из новостей
+python scripts/0_3_llm_explode.py --all         # explode по тикерам
+python scripts/0_4_news_ticker_features.py      # агрегация counts
+python scripts/1_prepare_data.py                # train/val/test split
+python scripts/2_train_model.py --exp-name momentum_baseline --model-type momentum
 python scripts/2_train_model.py --exp-name lgbm_with_news --model-type lightgbm
-
-# 5. Собрать все эксперименты и вычислить метрики
-python scripts/collect_experiments.py
-
-# 6. Показать leaderboard экспериментов
-python scripts/show_leaderboard.py
-
-# 7. Сгенерировать submission для лучшей модели
-python scripts/4_generate_submission.py --run-id <timestamp>_<exp_name>
-
-# 8. (Опционально) Оценить конкретную модель
-python scripts/3_evaluate.py --exp-dir <run_id> --data test --save-report
+python scripts/collect_experiments.py           # собрать все эксперименты
+python scripts/4_generate_submission.py --run-id 2025-10-04_22-09-17_lgbm_with_news
 ```
+
+**Результат:**
+- 57 признаков (техн. индикаторы + news_count_1d/7d/30d)
+- Val MAE: 0.0446 (LightGBM) vs 0.0459 (Momentum)
+- Submission готов: `outputs/2025-10-04_22-09-17_lgbm_with_news/submission.csv`
+
+---
+
+### 🔥 LLM Pipeline (следующий шаг)
+
+**Добавляет:** sentiment analysis через gpt-4o-mini (OpenRouter API)
+
+```bash
+# 0. Setup API key
+# внутри скрипта есть loadenv - положить ключ в .env и все заработает 
+export OPENROUTER_API_KEY='sk-or-v1-...'  # https://openrouter.ai/keys
+
+# 1. LLM sentiment analysis
+python scripts/0_2_llm_models.py
+# → news_with_tickers_llm.csv (+ sentiment: -1/0/+1, confidence: 0-10)
+
+# 2. Explode + агрегация с LLM features
+python scripts/0_3_llm_explode.py --all
+python scripts/0_4_news_ticker_features.py
+
+# 3. Переобучить модель с новыми фичами
+python scripts/1_prepare_data.py  # перегенерирует train/val/test с LLM фичами
+python scripts/2_train_model.py --exp-name lgbm_with_llm --model-type lightgbm
+
+# 4. Сравнить результаты
+python scripts/collect_experiments.py
+```
+
+**Ожидаемые фичи:**
+- `sentiment_mean` — средний sentiment по новостям
+- `sentiment_weighted` — взвешенный по confidence
+- `positive_count`, `negative_count`, `neutral_count`
+- Rolling features: `sentiment_mean_7d`, `sentiment_mean_30d`
+
+**Стоимость:** ~$0.01-0.05 за 1000 новостей (batch processing, 6 параллельных запросов)
 
 ---
 
@@ -136,25 +172,58 @@ python scripts/3_evaluate.py --exp-dir <run_id> --data test --save-report
 
 ## 📊 Ключевые улучшения
 
-### 1. Новостные фичи
+### 1. Новостные фичи (базовые - counts)
 
-**Добавлены в `features_news.py`:**
-- `news_count_1d_lag` — количество новостей за предыдущий день
-- `news_count_7d_lag` — за последние 7 дней
-- `news_count_30d_lag` — за последние 30 дней
+**Добавлены в `features_news_tickers.py`:**
+- `news_count_1d` — количество новостей за день
+- `news_count_7d` — за последние 7 дней (rolling)
+- `news_count_30d` — за последние 30 дней (rolling)
 
 **ВАЖНО:** Правильный lag для избежания data leakage
 - Новости доступны до `t-1`
 - Для свечей дня `t` используем новости до `t-1`
 
-**Feature Importance:**
+**Feature Importance (базовый pipeline):**
 ```
-1. news_count_30d_lag  — 1007.5 🥇
-2. news_count_7d_lag   — 907.0  🥈
-3. ma_5d               — 589.25
+1. news_count_30d  — 1007.5 🥇
+2. news_count_7d   — 907.0  🥈
+3. ma_5d           — 589.25
 ```
 
-### 2. Автоматическая оценка на test
+### 2. LLM Sentiment Features 🆕
+
+**Pipeline:** gpt-4o-mini via OpenRouter API
+
+**Добавленные признаки:**
+- `sentiment_mean` — средний sentiment по новостям (-1 до 1)
+- `sentiment_weighted` — sentiment взвешенный по уверенности модели
+- `confidence_mean` — средняя уверенность LLM (0-10)
+- `positive_count` — количество позитивных новостей
+- `negative_count` — количество негативных новостей
+- `neutral_count` — количество нейтральных новостей
+- Rolling features для всех метрик (7d, 30d)
+
+**Пример:**
+```python
+# После агрегации на (date, ticker) уровне
+ticker_features.head()
+   date       ticker  news_count_1d  sentiment_mean  confidence_mean  positive_count
+0  2025-04-15  SBER   5             0.6            7.2              3
+1  2025-04-15  GAZP   3             -0.33          6.5              1
+```
+
+**Классификация news_type:**
+- `company_specific` — одна компания (1 тикер)
+- `market_wide` — общерыночные новости (ticker = 'MARKET')
+- `market_wide_company` — несколько компаний (2+ тикера)
+
+**Стоимость LLM обработки:**
+- Модель: gpt-4o-mini ($0.15/1M input tokens, $0.60/1M output tokens)
+- ~20 новостей за 1 API запрос (batch processing)
+- 6 параллельных запросов
+- Примерная стоимость: $0.01-0.05 за 1000 новостей
+
+### 3. Автоматическая оценка на test
 
 **До:**
 - Оценка только на train/val
@@ -176,7 +245,7 @@ python scripts/3_evaluate.py --exp-dir <run_id> --data test --save-report
 }
 ```
 
-### 3. Система трекинга экспериментов
+### 4. Система трекинга экспериментов
 
 **Новая система:**
 1. **Baseline metrics** — эталон для сравнения
@@ -190,7 +259,7 @@ run_id,exp_name,model_type,test_mae_1d,test_mae_20d,test_score_total
 2025-10-03_23-39-26_momentum_baseline,momentum_baseline,momentum,0.020728,0.096072,0.050504
 ```
 
-### 4. Метрика оценки
+### 5. Метрика оценки
 
 **Основная метрика:**
 ```python
@@ -210,63 +279,57 @@ MAE (Mean Absolute Error) - средняя абсолютная ошибка п�
 
 ## 📈 Результаты экспериментов
 
-### Сравнение моделей (TEST)
+### Результаты (Val / Test)
 
-| Эксперимент | Model | MAE 1d | MAE 20d | MAE mean |
-|------------|-------|---------|---------|----------|
-| **lgbm_with_news** | LightGBM | 0.0173 | 0.0898 | **0.0536** 🥇 |
-| momentum_baseline | Momentum | 0.0207 | 0.0961 | 0.0584 |
+| Модель | Features | Val MAE 1d | Val MAE 20d | Val MAE mean | Test MAE mean |
+|--------|----------|------------|-------------|--------------|---------------|
+| **LightGBM + news** | 57 | 0.0125 | 0.0683 | **0.0446** 🥇 | **0.0566** |
+| LightGBM (43 fts) | 43 | 0.0126 | 0.0695 | 0.0458 | 0.0566 |
+| Momentum baseline | 57 | 0.0151 | 0.0686 | 0.0459 | 0.0622 |
 
 ### Улучшение vs Baseline
 
-**LightGBM с новостями:**
-- ✅ **MAE 1d**: +16.5% лучше (0.0207 → 0.0173)
-- ✅ **MAE 20d**: +6.6% лучше (0.0961 → 0.0898)
-- ✅ **MAE mean**: +8.2% лучше (0.0584 → 0.0536)
+**LightGBM + новостные counts:**
+- ✅ Val MAE: 0.0446 vs 0.0459 (↓2.7%)
+- ✅ Test MAE: 0.0566 vs 0.0622 (↓9.0%)
+- ✅ Новостные фичи в топ-3 по feature importance
 
-**Выводы:**
-1. ✅ Новостные фичи ОЧЕНЬ важны (топ-2 по importance)
-2. ✅ LightGBM точнее предсказывает величину доходности на обоих горизонтах
-3. ✅ Улучшение стабильно на train/val/test
+**Submission готов:**
+- 19 тикеров × 20 горизонтов
+- `outputs/2025-10-04_22-09-17_lgbm_with_news/submission.csv`
 
 ---
 
 ## 🔬 Следующие шаги
 
-### 1. Улучшение новостных фич
+### 1. LLM Sentiment Analysis 🔥
 
-**Текущие:** Только count (количество новостей)
+**Запустить:** см. раздел "LLM Pipeline" выше
 
-**Планы:**
-- Sentiment analysis (positive/negative/neutral)
-- Topic modeling (какие темы обсуждаются)
-- Entity extraction (какие компании упоминаются)
+**Ожидаемые улучшения:**
+- Sentiment features (positive/negative/neutral counts)
+- Confidence-weighted sentiment
+- News type classification (company_specific vs market_wide)
 
-```python
-# TODO: добавить в features_news.py
-def add_sentiment_features(candles_df, news_df):
-    # VADER или FinBERT для sentiment
-    pass
-```
+**Стоимость:** ~$0.01-0.05 за 1000 новостей
 
-### 2. Feature Selection
+### 2. Hyperparameter Tuning
 
-**Топ-20 признаков:**
-```
-news_count_30d_lag    1007.5
-news_count_7d_lag      907.0
-ma_5d                  589.25
-volatility_20d         562.0
-log_volume             534.25
-```
-
-Попробовать обучить только на топ-K:
 ```bash
-# TODO: добавить --top-features
-python scripts/2_train_model.py --exp-name lgbm_top20 --top-features 20
+# Подобрать гиперпараметры LightGBM
+python scripts/2_train_model.py --exp-name lgbm_tuned \
+  --n-estimators 500 \
+  --learning-rate 0.01 \
+  --max-depth 7
 ```
 
-### 3. Cross-validation для временных рядов ✅ РЕАЛИЗОВАНО
+### 3. Feature Engineering
+
+**Идеи:**
+- Sector momentum (агрегация по секторам)
+- Market regime detection (volatility clustering)
+- Technical indicators: ADX, ATR, Stochastic
+- Cross-ticker correlations
 
 **Rolling Window CV с gap:**
 - Gap = 21 торговый день (защита от data leakage для t+20)
@@ -294,122 +357,54 @@ print(f"Std MAE 1d:  {np.std(cv_results['mae_1d']):.4f}")
 
 ## 💡 Полезные команды
 
-### Быстрый старт (для первого запуска)
-
-```bash
-# 1. Подготовить данные (один раз)
-python scripts/1_prepare_data.py
-
-# 2. Вычислить baseline (один раз)
-python scripts/compute_baseline_metrics.py
-
-# 3. Обучить первую модель
-python scripts/2_train_model.py --exp-name lgbm_with_news --model-type lightgbm
-
-# 4. Собрать результаты
-python scripts/collect_experiments.py
-
-# 5. Посмотреть leaderboard
-python scripts/show_leaderboard.py
-```
-
 ### Быстрое экспериментирование
 
 ```bash
-# 1. Подготовить данные (один раз) - УЖЕ СДЕЛАНО ✓
-python scripts/1_prepare_data.py
-
-# 2. Вычислить baseline (один раз) - УЖЕ СДЕЛАНО ✓
-python scripts/compute_baseline_metrics.py
-python scripts/train_baseline.py
-
-# 3. Обучить несколько моделей
-python scripts/2_train_model.py --exp-name lgbm_100trees --n-estimators 100
+# Обучить модель с разными параметрами
 python scripts/2_train_model.py --exp-name lgbm_500trees --n-estimators 500
-python scripts/2_train_model.py --exp-name lgbm_calibrated --calibrate
+python scripts/2_train_model.py --exp-name lgbm_deep --max-depth 8
 
-# 4. Собрать результаты
+# Собрать все эксперименты
 python scripts/collect_experiments.py
 
-# 5. Посмотреть топ эксперименты
-python scripts/show_leaderboard.py --top 5
-```
-
-### Анализ экспериментов
-
-```bash
-# Топ-5 лучших экспериментов
+# Посмотреть leaderboard
 python -c "
 import pandas as pd
 df = pd.read_csv('outputs/experiments_log.csv')
-print(df[['exp_name', 'test_score_total']].sort_values('test_score_total', ascending=False).head())
-"
-
-# Сравнить два эксперимента
-python -c "
-import pandas as pd
-df = pd.read_csv('outputs/experiments_log.csv')
-exp1 = df[df['exp_name'] == 'lgbm_with_news'].iloc[0]
-exp2 = df[df['exp_name'] == 'momentum_baseline'].iloc[0]
-print('Experiment 1:', exp1['test_score_total'])
-print('Experiment 2:', exp2['test_score_total'])
-print('Improvement:', (exp1['test_score_total'] - exp2['test_score_total']) / exp2['test_score_total'] * 100, '%')
+print(df[['exp_name', 'val_mae_mean', 'test_mae_mean']].sort_values('val_mae_mean'))
 "
 ```
 
-### Воспроизведение лучшего эксперимента
+### Анализ feature importance
 
 ```bash
-# Найти лучший эксперимент
+# Посмотреть важность признаков лучшей модели
 python -c "
 import pandas as pd
-df = pd.read_csv('outputs/experiments_log.csv')
-best = df.loc[df['test_score_total'].idxmax()]
-print('Best experiment:', best['run_id'])
-print('Config:', f\"outputs/{best['run_id']}/config.yaml\")
+fi = pd.read_csv('outputs/2025-10-04_22-09-17_lgbm_with_news/feature_importance.csv')
+print(fi.head(20))
 "
+```
 
-# Посмотреть конфиг
-cat outputs/<best_run_id>/config.yaml
+### Генерация submission
 
-# Переобучить с теми же параметрами
-python scripts/2_train_model.py \
-    --exp-name best_model_v2 \
-    --model-type lightgbm \
-    --n-estimators <...> \
-    --learning-rate <...>
+```bash
+# Для лучшей модели
+python scripts/4_generate_submission.py --run-id 2025-10-04_22-09-17_lgbm_with_news
+
+# Для всех дат (не только последняя)
+python scripts/4_generate_submission.py --run-id <run_id> --full
 ```
 
 ---
 
-## 🎯 Для хакатона: Final Submission Pipeline
+## 🎯 Final Submission
 
-### 1. Выбор лучшей модели
+**Готово!** Submission файл сгенерирован:
+- `outputs/2025-10-04_22-09-17_lgbm_with_news/submission.csv`
+- 19 тикеров × 20 горизонтов (p1-p20)
 
-```bash
-# Найти лучший эксперимент по test_score_total
-python scripts/collect_experiments.py
-
-# Посмотреть в experiments_log.csv
-head -2 outputs/experiments_log.csv | column -t -s,
-```
-
-### 2. Генерация submission
-
-```bash
-# TODO: создать scripts/4_generate_submission.py
-python scripts/4_generate_submission.py \
-    --model-dir outputs/2025-10-03_23-41-15_lgbm_with_news/ \
-    --test-data data/raw/participants/public_test_candles.csv \
-    --output submission.csv
-```
-
-### 3. Проверка
-
-```bash
-# Убедиться что submission корректен
-python scripts/verify_submission.py submission.csv
-```
+**Загрузить на платформу соревнования.**
 
 ---
 

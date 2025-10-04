@@ -28,7 +28,7 @@ build/
 .env.local
 
 # Data - Keep only what's needed for participants
-data/raw/
+
 data/interim/
 data/preprocessed/  # NEW: preprocessed data (can be regenerated)
 !data/raw/.gitkeep
@@ -56,3 +56,4 @@ scripts/prepare_data.py
 scripts/evaluate_submission.py
 outputs/
 data/preprocessed
+data/preprocessed_news
