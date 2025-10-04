@@ -37,7 +37,7 @@ Score = MAE (Mean Absolute Error)
 - Время работы train+predict ≤ 60 минут
 - Воспроизводимость: фиксированный seed
 
-**Референс:** `scripts/baseline_solution.py` — простой momentum-based подход
+**Референс:** `src/finam/model.py:MomentumBaseline` — простой momentum-based подход
 
 ---
 
@@ -72,16 +72,15 @@ def compute_volatility(df: pd.DataFrame, window: int = 5) -> pd.DataFrame
 def compute_moving_average(df: pd.DataFrame, window: int = 5) -> pd.DataFrame
 def add_all_features(df: pd.DataFrame, windows: list[int] = [5, 20]) -> pd.DataFrame
 ```
-> Референс: `scripts/baseline_solution.py:60-96`
 
 **model.py** — обёртка над моделями (только regression)
 ```python
 class BaseModel:
-    def fit(X, y_return_1d, y_return_20d) -> None
-    def predict(X) -> dict  # returns {pred_return_1d, pred_return_20d}
+    def fit(X, y_returns_dict) -> None  # dict with all 20 horizons
+    def predict(X) -> dict  # returns {pred_return_1d, ..., pred_return_20d}
 
-class MomentumBaseline(BaseModel):  # baseline из scripts/
-class LightGBMModel(BaseModel):     # 2 regression модели (MAE loss)
+class MomentumBaseline(BaseModel):  # rule-based baseline (momentum continuation)
+class LightGBMModel(BaseModel):     # 20 regression models (MAE loss)
 ```
 
 **pipeline.py** — train/predict workflow
@@ -101,7 +100,7 @@ def evaluate_model_cv(model, df: pd.DataFrame, cv_splitter) -> dict[str, float]
 ## 🚀 Workflow для LLM агента
 
 ### 1. Analyze (Анализ задачи)
-- Прочитать baseline в `scripts/baseline_solution.py`
+- Изучить `src/finam/model.py:MomentumBaseline` (rule-based baseline)
 - Понять формат данных, метрики, pipeline
 - Определить scope изменений
 
@@ -125,18 +124,20 @@ def evaluate_model_cv(model, df: pd.DataFrame, cv_splitter) -> dict[str, float]
 ruff check --fix src/ && ruff format src/
 
 # Запустить baseline для проверки
-python scripts/baseline_solution.py
+python scripts/2_train_model.py --exp-name momentum_baseline --model-type momentum
 
-# Запустить свой код (когда будет готов)
-python -m src.finam.pipeline train ...
-python -m src.finam.pipeline predict ...
+# Запустить LightGBM модель
+python scripts/2_train_model.py --exp-name my_experiment --model-type lightgbm
+
+# Сравнить все эксперименты
+python scripts/collect_experiments.py --analyze-features
 ```
 
 ### 5. Document (Запись в SESSION.md)
 ```
-## 2025-10-03: Добавил модуль features.py
+## 2025-10-04: Добавил модуль features.py
 - Реализованы функции для momentum, volatility, MA
-- Базируется на scripts/baseline_solution.py:60-96
+- Добавлены cross-sectional признаки (rank, z-score)
 - Готово для интеграции в pipeline
 ```
 
@@ -157,7 +158,7 @@ def compute_momentum(df: pd.DataFrame):
 ```
 
 ### 2. Baseline First
-- Сначала воспроизвести baseline из scripts/
+- Запустить `MomentumBaseline` как отправную точку
 - Потом добавлять улучшения по одному
 - Измерять каждое изменение
 
@@ -266,7 +267,8 @@ print(f"MAE mean: {metrics['mae_mean']:.6f}")
 ## 📚 Референсы
 
 **Baseline решение:**
-`scripts/baseline_solution.py` — momentum-based подход (простой, работает, можно улучшать)
+- `src/finam/model.py:MomentumBaseline` — rule-based baseline (momentum continuation)
+- Запуск: `python scripts/2_train_model.py --exp-name baseline --model-type momentum`
 
 **Документация задачи:**
 - `docs/task.md` — полное описание задачи FORECAST
@@ -287,10 +289,10 @@ ruff format src/ tests/
 
 ## 🎓 Для агента: стратегия улучшения baseline
 
-### Итерация 1: Воспроизводимость
-1. Перенести baseline из scripts/ в src/finam/
-2. Проверить что получаются те же результаты
-3. Добавить тесты на метрики
+### Итерация 1: Воспроизводимость ✅ РЕАЛИЗОВАНО
+1. ✅ `MomentumBaseline` реализован в `src/finam/model.py`
+2. ✅ Интегрирован в единый пайплайн `scripts/2_train_model.py`
+3. ✅ Метрики: val MAE mean = 0.045861 (baseline для сравнения)
 
 ### Итерация 2: Feature Engineering
 1. Добавить больше технических индикаторов (RSI, MACD, Bollinger Bands)

@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 import argparse
 from datetime import datetime
+from typing import Optional
 
 # Добавляем src/ в PYTHONPATH
 project_root = Path(__file__).parent.parent
@@ -30,7 +31,7 @@ from finam.features import (
     fit_cross_sectional_stats,
     transform_cross_sectional_features
 )
-from finam.features_news import add_news_features
+from finam.features_news_tickers import join_ticker_news_features
 from finam.features_target import compute_multi_horizon_targets
 
 
@@ -39,7 +40,8 @@ def prepare_data(
     val_ratio: float = 0.15,
     windows: list = None,
     include_cross_sectional: bool = True,
-    include_interactions: bool = True
+    include_interactions: bool = True,
+    start_date: Optional[str] = None
 ):
     """
     Подготовка данных с разбиением на train/val/test
@@ -50,6 +52,7 @@ def prepare_data(
         windows: окна для признаков [5, 20]
         include_cross_sectional: включить cross-sectional features
         include_interactions: включить interaction features
+        start_date: earliest candle date to keep (формат YYYY-MM-DD)
     """
     print("=" * 80)
     print("DATA PREPARATION PIPELINE")
@@ -57,6 +60,8 @@ def prepare_data(
 
     if windows is None:
         windows = [5, 20]
+
+    start_ts = pd.to_datetime(start_date) if start_date else None
 
     # Проверка что train + val <= 1.0
     test_ratio = 1.0 - train_ratio - val_ratio
@@ -84,16 +89,30 @@ def prepare_data(
     df = pd.read_csv(train_path)
     df['begin'] = pd.to_datetime(df['begin'])
 
+    if start_ts is not None:
+        before_len = len(df)
+        df = df[df['begin'] >= start_ts].copy()
+        print(
+            f"   * Applied start_date filter ({start_ts.date()}), "
+            f"dropped {before_len - len(df)} rows"
+        )
+
     print(f"   OK Loaded {len(df)} rows, {df['ticker'].nunique()} tickers (train)")
     print(f"   OK Period: {df['begin'].min()} to {df['begin'].max()}")
 
-    # Загружаем новости (если файл существует)
-    news_df = None
-    if news_path.exists():
-        news_df = pd.read_csv(news_path)
-        print(f"   OK Loaded {len(news_df)} news (train)")
+    # Загружаем ticker news features (из preprocessed_news/)
+    preprocessed_news_dir = project_root / 'data' / 'preprocessed_news'
+    ticker_news_path = preprocessed_news_dir / 'news_ticker_features.csv'
+    ticker_news_df = None
+    if ticker_news_path.exists():
+        ticker_news_df = pd.read_csv(ticker_news_path)
+        # Проверяем наличие LLM features
+        has_llm = any(col.startswith('sentiment_') for col in ticker_news_df.columns)
+        feature_type = "with LLM sentiment" if has_llm else "counts only"
+        print(f"   OK Loaded {len(ticker_news_df)} ticker news features (train, {feature_type})")
     else:
-        print(f"   [WARNING] News file not found: {news_path}")
+        print(f"   [WARNING] Ticker news features not found: {ticker_news_path}")
+        print(f"   [INFO] Run: python scripts/0_1_news_ticker_features.py")
 
     # Загружаем holdout test данные
     holdout_test_df = None
@@ -105,9 +124,13 @@ def prepare_data(
         print(f"   OK Loaded {len(holdout_test_df)} rows (holdout_test)")
         print(f"   OK Period: {holdout_test_df['begin'].min()} to {holdout_test_df['begin'].max()}")
 
-    if test_news_path.exists():
-        test_news_df = pd.read_csv(test_news_path)
-        print(f"   OK Loaded {len(test_news_df)} news (holdout_test)")
+    ticker_test_news_path = preprocessed_news_dir / 'news_2_ticker_features.csv'
+    if ticker_test_news_path.exists():
+        test_news_df = pd.read_csv(ticker_test_news_path)
+        # Проверяем наличие LLM features
+        has_llm_test = any(col.startswith('sentiment_') for col in test_news_df.columns)
+        feature_type_test = "with LLM sentiment" if has_llm_test else "counts only"
+        print(f"   OK Loaded {len(test_news_df)} ticker news features (holdout_test, {feature_type_test})")
 
     print()
 
@@ -125,9 +148,11 @@ def prepare_data(
         include_interactions=include_interactions
     )
 
-    # Добавляем новостные фичи (если новости загружены)
-    if news_df is not None:
-        df = add_news_features(df, news_df, lag_days=1, rolling_windows=[1, 7, 30])
+    # Добавляем ticker news features (если загружены)
+    if ticker_news_df is not None:
+        print("   * Joining ticker news features...")
+        df = join_ticker_news_features(df, ticker_news_df, lag_days=1)
+        print(f"      OK Added {len([c for c in df.columns if c.startswith('news_count_')])} news features")
 
     print(f"   OK Created базовые признаки")
 
@@ -227,7 +252,8 @@ def prepare_data(
             include_interactions=include_interactions
         )
         if test_news_df is not None:
-            holdout_test_df = add_news_features(holdout_test_df, test_news_df, lag_days=1, rolling_windows=[1, 7, 30])
+            print("   * Joining ticker news features (holdout test)...")
+            holdout_test_df = join_ticker_news_features(holdout_test_df, test_news_df, lag_days=1)
 
         # Cross-sectional features (используя train статистики)
         if include_cross_sectional:
@@ -280,7 +306,8 @@ def prepare_data(
         'val_period': f"{val_df['begin'].min().date()} to {val_df['begin'].max().date()}",
         'test_period': f"{test_df['begin'].min().date()} to {test_df['begin'].max().date()}",
         'train_end_date': str(train_end_date.date()),
-        'val_end_date': str(val_end_date.date())
+        'val_end_date': str(val_end_date.date()),
+        'start_date': start_date
     }
 
     # Добавляем информацию о holdout test если есть
@@ -333,6 +360,8 @@ if __name__ == "__main__":
                         help='Exclude cross-sectional features')
     parser.add_argument('--no-interactions', action='store_true',
                         help='Exclude interaction features')
+    parser.add_argument('--start-date', type=str, default=None,
+                        help='Earliest candle date to keep (YYYY-MM-DD)')
 
     args = parser.parse_args()
 
@@ -341,5 +370,6 @@ if __name__ == "__main__":
         val_ratio=args.val_ratio,
         windows=args.windows,
         include_cross_sectional=not args.no_cross_sectional,
-        include_interactions=not args.no_interactions
+        include_interactions=not args.no_interactions,
+        start_date=args.start_date
     )

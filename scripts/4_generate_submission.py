@@ -3,12 +3,20 @@ Generate Submission Script
 
 Этот скрипт:
 1. Загружает обученную модель из outputs/<run_id>/
-2. Загружает preprocessed public_test.parquet и private_test.parquet
-3. Генерирует предсказания (pred_return_1d/20d, pred_prob_up_1d/20d)
-4. Сохраняет submission файлы в outputs/<run_id>/
+2. Загружает preprocessed holdout_test данные
+3. Генерирует предсказания для 20 горизонтов (pred_return_1d через pred_return_20d)
+4. По умолчанию: одна строка на тикер (последняя дата)
+5. С флагом --full: все доступные даты
+6. Сохраняет submission.csv в outputs/<run_id>/
 
 Usage:
+    # Генерация submission (latest date per ticker - default)
     python scripts/4_generate_submission.py --run-id 2025-10-03_23-41-15_lgbm_with_news
+
+    # Генерация submission для всех дат
+    python scripts/4_generate_submission.py --run-id <run_id> --full
+
+    # Сохранить в другую директорию
     python scripts/4_generate_submission.py --run-id <run_id> --output-dir submissions/
 """
 
@@ -31,7 +39,7 @@ def generate_submission(
     run_id: str,
     output_dir: str = None,
     preprocessed_dir: str = None,
-    latest: bool = False
+    full: bool = False
 ):
     """
     Генерация submission файлов для public и private тестов
@@ -40,7 +48,7 @@ def generate_submission(
         run_id: идентификатор эксперимента (например 2025-10-03_23-41-15_lgbm_with_news)
         output_dir: директория для сохранения submission (по умолчанию outputs/<run_id>/)
         preprocessed_dir: директория с preprocessed данными (по умолчанию data/preprocessed/)
-        latest: если True, генерировать одно предсказание на последнюю дату для каждого тикера
+        full: если True, генерировать предсказания для всех дат (по умолчанию: только последняя дата на тикер)
     """
     print("=" * 80)
     print("GENERATE SUBMISSION")
@@ -181,17 +189,27 @@ def generate_submission(
 
     submission = pd.DataFrame(submission_data)
 
-    # Фильтрация на последнюю дату для каждого тикера, если флаг --latest
-    if latest:
-        print(f"      Filtering to latest date per ticker...")
+    # По умолчанию фильтруем на последнюю дату для каждого тикера (если не указан --full)
+    if not full:
+        print(f"      Filtering to latest date per ticker (use --full for all dates)...")
         submission = submission.sort_values('begin').groupby('ticker').tail(1).reset_index(drop=True)
         print(f"      Filtered to {len(submission)} rows (one per ticker)")
 
+        # Переименовываем колонки: pred_return_1d -> p1, ..., pred_return_20d -> p20
+        # И удаляем колонку 'begin' для режима latest
+        rename_dict = {f'pred_return_{h}d': f'p{h}' for h in range(1, 21)}
+        submission = submission.rename(columns=rename_dict)
+        submission = submission.drop(columns=['begin'])
+    else:
+        # Для --full режима переименовываем колонки, но оставляем 'begin'
+        rename_dict = {f'pred_return_{h}d': f'p{h}' for h in range(1, 21)}
+        submission = submission.rename(columns=rename_dict)
+
     print(f"      Generated {len(submission)} predictions with {len(preds)} horizons")
     print(f"      Sample stats:")
-    print(f"         pred_return_1d:  mean={submission['pred_return_1d'].mean():.6f}, std={submission['pred_return_1d'].std():.6f}")
-    print(f"         pred_return_10d: mean={submission['pred_return_10d'].mean():.6f}, std={submission['pred_return_10d'].std():.6f}")
-    print(f"         pred_return_20d: mean={submission['pred_return_20d'].mean():.6f}, std={submission['pred_return_20d'].std():.6f}")
+    print(f"         p1:  mean={submission['p1'].mean():.6f}, std={submission['p1'].std():.6f}")
+    print(f"         p10: mean={submission['p10'].mean():.6f}, std={submission['p10'].std():.6f}")
+    print(f"         p20: mean={submission['p20'].mean():.6f}, std={submission['p20'].std():.6f}")
 
     # ========================================================================
     # 5. Сохранение submission файлов
@@ -202,7 +220,10 @@ def generate_submission(
     submission.to_csv(submission_path, index=False)
     print(f"   OK Saved: {submission_path}")
     print(f"      Rows: {len(submission)}")
-    print(f"      Columns: {len(submission.columns)} (ticker, begin, pred_return_1d through pred_return_20d)")
+    if full:
+        print(f"      Columns: {len(submission.columns)} (ticker, begin, p1 through p20)")
+    else:
+        print(f"      Columns: {len(submission.columns)} (ticker, p1 through p20)")
 
     # ========================================================================
     # Summary
@@ -234,8 +255,8 @@ if __name__ == "__main__":
                         help='Output directory for submission files (default: outputs/<run_id>/)')
     parser.add_argument('--preprocessed-dir', type=str, default=None,
                         help='Directory with preprocessed data (default: data/preprocessed/)')
-    parser.add_argument('--latest', action='store_true',
-                        help='Generate only one prediction per ticker (last date)')
+    parser.add_argument('--full', action='store_true',
+                        help='Generate predictions for all dates (default: latest only)')
 
     args = parser.parse_args()
 
@@ -243,5 +264,5 @@ if __name__ == "__main__":
         run_id=args.run_id,
         output_dir=args.output_dir,
         preprocessed_dir=args.preprocessed_dir,
-        latest=args.latest
+        full=args.full
     )
